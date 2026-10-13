@@ -10,6 +10,16 @@ from .games import GAMES
 if TYPE_CHECKING:
     from .bot import TenManBot
 
+# Sandbox players created by /test run. They have no Discord account, so they
+# are shown by name instead of as a mention.
+FAKE_PLAYERS: dict[int, str] = {}
+
+
+def mention(user_id: int) -> str:
+    name = FAKE_PLAYERS.get(user_id)
+    return f"**{name}**" if name else f"<@{user_id}>"
+
+
 GAME_CHOICES = [app_commands.Choice(name=g.name, value=g.key) for g in GAMES.values()]
 
 

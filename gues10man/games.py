@@ -69,6 +69,15 @@ GAMES: dict[str, Game] = {
             sides=("Attackers", "Defenders"),
         ),
         Game(
+            key="sandbox",
+            name="Sandbox",
+            team_size=5,
+            maps=("Abyss", "Ascent", "Bind", "Haven", "Lotus", "Sunset"),
+            ranks=VALORANT_RANKS,
+            score_label="ACS",
+            sides=("Attackers", "Defenders"),
+        ),
+        Game(
             key="cs2",
             name="Counter-Strike 2",
             team_size=5,

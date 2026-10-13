@@ -13,11 +13,11 @@ from .db import Database
 from .games import GAMES
 from .ranks import HenrikClient
 from .rating import refit
-from .util import reply
+from .util import FAKE_PLAYERS, reply
 
 log = logging.getLogger("gues10man")
 
-EXTENSIONS = ("gues10man.cogs.lobby", "gues10man.cogs.players", "gues10man.cogs.admin")
+EXTENSIONS = ("gues10man.cogs.lobby", "gues10man.cogs.players", "gues10man.cogs.admin", "gues10man.cogs.sandbox")
 
 
 class TenManBot(commands.Bot):
@@ -32,6 +32,7 @@ class TenManBot(commands.Bot):
 
     async def setup_hook(self) -> None:
         await self.db.connect()
+        FAKE_PLAYERS.update(await self.db.fake_players())
         for ext in EXTENSIONS:
             await self.load_extension(ext)
         if self.settings.guild_id:

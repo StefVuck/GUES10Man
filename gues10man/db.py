@@ -79,6 +79,11 @@ CREATE TABLE IF NOT EXISTS match_players (
     PRIMARY KEY (match_id, user_id)
 );
 
+CREATE TABLE IF NOT EXISTS fake_players (
+    user_id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_match_players_user ON match_players(user_id);
 """
 
@@ -118,6 +123,25 @@ class Database:
         await self.conn.execute("PRAGMA foreign_keys = ON")
         await self.conn.executescript(SCHEMA)
         await self.conn.commit()
+
+    async def fake_players(self) -> dict[int, str]:
+        async with self.db.execute("SELECT user_id, name FROM fake_players") as cur:
+            return {r["user_id"]: r["name"] for r in await cur.fetchall()}
+
+    async def add_fake_players(self, players: dict[int, str]) -> None:
+        await self.db.executemany(
+            "INSERT OR REPLACE INTO fake_players (user_id, name) VALUES (?, ?)", list(players.items())
+        )
+        await self.db.commit()
+
+    async def wipe_game(self, game: str) -> None:
+        """Deletes every match, rating and queue for a game. Only used for the sandbox."""
+        await self.db.execute(
+            "DELETE FROM match_players WHERE match_id IN (SELECT id FROM matches WHERE game = ?)", (game,)
+        )
+        for table in ("matches", "ratings", "queues", "queue_entries"):
+            await self.db.execute(f"DELETE FROM {table} WHERE game = ?", (game,))
+        await self.db.commit()
 
     async def close(self) -> None:
         if self.conn:

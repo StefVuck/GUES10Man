@@ -14,7 +14,7 @@ from discord.ext import commands
 from ..balance import auto_balance, choose_captains, snake_order
 from ..elo import PlayerRating, win_probability
 from ..games import DEFAULT_RATING, GAMES, Game
-from ..util import GAME_CHOICES, fmt_delta, fmt_rating, is_staff, reply, staff_only
+from ..util import FAKE_PLAYERS, GAME_CHOICES, mention, fmt_delta, fmt_rating, is_staff, reply, staff_only
 
 if TYPE_CHECKING:
     from ..bot import TenManBot
@@ -227,7 +227,11 @@ class Lobby(commands.Cog):
 
     # helpers
 
-    async def name(self, guild: discord.Guild, user_id: int) -> str:
+    async def name(self, guild: discord.Guild | None, user_id: int) -> str:
+        if user_id in FAKE_PLAYERS:
+            return FAKE_PLAYERS[user_id]
+        if guild is None:
+            return str(user_id)
         if user_id not in self.names:
             member = guild.get_member(user_id)
             if member is None:
@@ -259,7 +263,7 @@ class Lobby(commands.Cog):
         members = await self.db.queue_members(guild.id, game.key)
         ratings = await self.ratings(members, game.key)
         lines = [
-            f"`{i:>2}` <@{uid}> ({fmt_rating(ratings[uid].rating)})" for i, uid in enumerate(members, 1)
+            f"`{i:>2}` {mention(uid)} ({fmt_rating(ratings[uid].rating)})" for i, uid in enumerate(members, 1)
         ]
         embed = discord.Embed(
             title=f"{game.name} 10 man queue",
@@ -386,7 +390,7 @@ class Lobby(commands.Cog):
         def line(p, delta: bool = False) -> str:
             uid = p["user_id"]
             rating = p["rating_before"] if delta and p["rating_before"] is not None else ratings[uid].rating
-            text = f"<@{uid}> ({fmt_rating(rating)})"
+            text = f"{mention(uid)} ({fmt_rating(rating)})"
             if p["is_captain"]:
                 text += " (C)"
             if delta and p["rating_delta"] is not None:
@@ -416,11 +420,11 @@ class Lobby(commands.Cog):
                 embed.add_field(name=f"Team {captain_name}", value="\n".join(line(p) for p in members) or "-", inline=True)
             embed.add_field(
                 name="Available",
-                value="\n".join(f"<@{u}> ({fmt_rating(ratings[u].rating)})" for u in state.pool) or "-",
+                value="\n".join(f"{mention(u)} ({fmt_rating(ratings[u].rating)})" for u in state.pool) or "-",
                 inline=False,
             )
             embed.description = (
-                f"<@{state.current_captain}> is picking (pick {state.pick_number + 1} of {len(state.order)}). "
+                f"{mention(state.current_captain)} is picking (pick {state.pick_number + 1} of {len(state.order)}). "
                 "Sides are decided by coin flip once the draft is done."
             )
             options = []
@@ -476,10 +480,11 @@ class Lobby(commands.Cog):
         except discord.HTTPException:
             log.warning("Couldn't update message for match %s", match_id)
 
-    async def respond_with_match(self, interaction: discord.Interaction, match_id: int) -> None:
+    async def respond_with_match(self, interaction: discord.Interaction | None, match_id: int) -> None:
         m = await self.db.get_match(match_id)
         on_message = (
-            interaction.type == discord.InteractionType.component
+            interaction is not None
+            and interaction.type == discord.InteractionType.component
             and interaction.message is not None
             and interaction.message.id == m["message_id"]
         )
@@ -493,7 +498,7 @@ class Lobby(commands.Cog):
         players = await self.db.match_players(match_id)
         embed, view = await self.render_match(match_id)
         message = await channel.send(
-            content="Match ready! " + " ".join(f"<@{p['user_id']}>" for p in players), embed=embed, view=view
+            content="Match ready! " + " ".join(f"{mention(p['user_id'])}" for p in players), embed=embed, view=view
         )
         await self.db.update_match(match_id, channel_id=message.channel.id, message_id=message.id)
         # Warm the name cache so the draft picker renders inside the interaction deadline.
@@ -572,7 +577,7 @@ class Lobby(commands.Cog):
         pool = [m for m in game.maps if m != exclude] or list(game.maps)
         return random.choice(pool) if pool else None
 
-    async def start_auto(self, interaction: discord.Interaction, match_id: int) -> None:
+    async def start_auto(self, interaction: discord.Interaction | None, match_id: int) -> None:
         m = await self.db.get_match(match_id)
         players = await self.db.match_players(match_id)
         ratings = await self.ratings([p["user_id"] for p in players], m["game"])
@@ -582,7 +587,7 @@ class Lobby(commands.Cog):
         await self.db.update_match(match_id, mode="auto")
         await self.go_live(interaction, match_id)
 
-    async def start_draft(self, interaction: discord.Interaction, match_id: int, method: str) -> None:
+    async def start_draft(self, interaction: discord.Interaction | None, match_id: int, method: str) -> None:
         m = await self.db.get_match(match_id)
         players = await self.db.match_players(match_id)
         ratings = await self.ratings([p["user_id"] for p in players], m["game"])
@@ -647,6 +652,8 @@ class Lobby(commands.Cog):
         m = await self.db.get_match(match_id)
         failed = []
         for captain in state.captains:
+            if captain in FAKE_PLAYERS:
+                continue
             try:
                 user = self.bot.get_user(captain) or await self.bot.fetch_user(captain)
                 await user.send(embed=await self.pool_embed(match_id, captain))
@@ -655,7 +662,7 @@ class Lobby(commands.Cog):
         channel = self.bot.get_channel(m["channel_id"])
         if failed and isinstance(channel, discord.abc.Messageable):
             await channel.send(
-                " ".join(f"<@{u}>" for u in failed)
+                " ".join(f"{mention(u)}" for u in failed)
                 + " I couldn't DM you the player pool. Allow DMs from server members to get it next time."
             )
 
@@ -666,20 +673,25 @@ class Lobby(commands.Cog):
                 await reply(interaction, "This draft isn't running any more.")
                 return
             if interaction.user.id != state.current_captain and not await is_staff(interaction):
-                await reply(interaction, f"It's <@{state.current_captain}>'s pick.")
+                await reply(interaction, f"It's {mention(state.current_captain)}'s pick.")
                 return
             if picked not in state.pool:
                 await reply(interaction, "That player has already been picked.")
                 return
-            state.pick(picked)
-            if not state.done:
-                await self.respond_with_match(interaction, match_id)
-                return
-            del self.drafts[match_id]
-            await self.db.set_teams(match_id, state.teams[0], state.teams[1], state.captains, state.pick_log)
-            await self.go_live(interaction, match_id)
+            await self.pick(interaction, match_id, picked)
 
-    async def go_live(self, interaction: discord.Interaction, match_id: int) -> None:
+    async def pick(self, interaction: discord.Interaction | None, match_id: int, picked: int) -> None:
+        """Applies a validated pick. The caller holds the match lock."""
+        state = self.drafts[match_id]
+        state.pick(picked)
+        if not state.done:
+            await self.respond_with_match(interaction, match_id)
+            return
+        del self.drafts[match_id]
+        await self.db.set_teams(match_id, state.teams[0], state.teams[1], state.captains, state.pick_log)
+        await self.go_live(interaction, match_id)
+
+    async def go_live(self, interaction: discord.Interaction | None, match_id: int) -> None:
         m = await self.db.get_match(match_id)
         if random.random() < 0.5:
             await self.db.swap_sides(match_id)
@@ -698,7 +710,7 @@ class Lobby(commands.Cog):
         for key in ("A", "B"):
             team = [p for p in players if p["team"] == key]
             team.sort(key=lambda p: not p["is_captain"])
-            mentions = " ".join(f"<@{p['user_id']}>" + (" (C)" if p["is_captain"] else "") for p in team)
+            mentions = " ".join(f"{mention(p['user_id'])}" + (" (C)" if p["is_captain"] else "") for p in team)
             lines.append(f"**{game.side(key)}:** {mentions}")
         try:
             await channel.send(
@@ -712,34 +724,41 @@ class Lobby(commands.Cog):
     async def finish_match(
         self, interaction: discord.Interaction, match_id: int, winner: str, score: tuple[int, int] | None
     ) -> None:
+        if not interaction.response.is_done():
+            await interaction.response.defer(ephemeral=True, thinking=True)
+        error = await self.record_result(match_id, winner, score, interaction.user.id)
+        await reply(interaction, error or f"Result recorded for match #{match_id}.")
+
+    async def record_result(
+        self, match_id: int, winner: str, score: tuple[int, int] | None, reported_by: int
+    ) -> str | None:
+        """Returns an error message, or None once the result is stored and ratings refitted."""
         async with self.locks[("match", match_id)]:
             m = await self.db.get_match(match_id)
             if not m or m["status"] != "live":
-                await reply(interaction, "This match isn't in progress, so there's nothing to report.")
-                return
+                return "This match isn't in progress, so there's nothing to report."
             if score and ((score[0] > score[1]) != (winner == "A")):
-                await reply(interaction, "The score doesn't match the winning team.")
-                return
-            if not interaction.response.is_done():
-                await interaction.response.defer(ephemeral=True, thinking=True)
+                return "The score doesn't match the winning team."
             teams = {p["user_id"]: p["team"] for p in await self.db.match_players(match_id)}
-            await self.db.apply_result(match_id, m["game"], winner, teams, score, interaction.user.id)
+            await self.db.apply_result(match_id, m["game"], winner, teams, score, reported_by)
             await self.bot.refit(m["game"], credit_match=match_id)
-
         await self.refresh_match_message(match_id)
-        await reply(interaction, f"Result recorded for match #{match_id}.", ephemeral=True)
+        return None
 
     async def save_scoreboard(self, interaction: discord.Interaction, match_id: int, scores: dict[int, float]) -> None:
         await interaction.response.defer(ephemeral=True, thinking=True)
+        error = await self.record_scoreboard(match_id, scores)
+        await reply(interaction, error or "Scoreboard saved and ratings updated.")
+
+    async def record_scoreboard(self, match_id: int, scores: dict[int, float]) -> str | None:
         async with self.locks[("match", match_id)]:
             m = await self.db.get_match(match_id)
             if not m or m["status"] != "complete":
-                await reply(interaction, "Scoreboards can only be entered for completed matches.")
-                return
+                return "Scoreboards can only be entered for completed matches."
             await self.db.set_scores(match_id, scores)
             await self.bot.refit(m["game"], credit_match=match_id)
         await self.refresh_match_message(match_id)
-        await reply(interaction, "Scoreboard saved and ratings updated.")
+        return None
 
     async def cancel_match(self, interaction: discord.Interaction, match_id: int) -> None:
         async with self.locks[("match", match_id)]:

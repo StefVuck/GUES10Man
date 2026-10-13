@@ -13,7 +13,10 @@ from .elo5v5 import fit
 from .games import DEFAULT_RATING
 
 BASE = DEFAULT_RATING
-PRIOR = 1.0
+# Chosen by replaying simulated leagues and scoring next-game predictions.
+# A prior of 1 overreacts badly (a single win is worth ~185 displayed points
+# and early predictions are worse than a coin flip); 10 to 20 predicted best.
+PRIOR = 20.0
 PERF_WEIGHT = 0.3
 
 

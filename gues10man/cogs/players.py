@@ -9,7 +9,7 @@ from discord.ext import commands
 
 from ..games import DEFAULT_RATING, GAMES
 from ..ranks import REGIONS, RankLookupError
-from ..util import GAME_CHOICES, fmt_delta, fmt_rating, is_staff, reply
+from ..util import GAME_CHOICES, mention, fmt_delta, fmt_rating, is_staff, reply
 
 if TYPE_CHECKING:
     from ..bot import TenManBot
@@ -155,7 +155,7 @@ class Players(commands.Cog):
         if mates:
             embed.add_field(
                 name="Best duo partners",
-                value="\n".join(f"<@{r['user_id']}> {r['won']}/{r['played']}" for r in mates[:3]),
+                value="\n".join(f"{mention(r['user_id'])} {r['won']}/{r['played']}" for r in mates[:3]),
             )
         await interaction.response.send_message(embed=embed)
 
@@ -211,7 +211,7 @@ class Players(commands.Cog):
             lines = []
             for i, r in enumerate(rows[start : start + PAGE_SIZE], start + 1):
                 wr = f"{r.wins / r.games:.0%}" if r.games else "-"
-                lines.append(f"`{i:>2}` <@{r.user_id}> **{fmt_rating(r.rating)}** · {r.wins}W {r.losses}L ({wr})")
+                lines.append(f"`{i:>2}` {mention(r.user_id)} **{fmt_rating(r.rating)}** · {r.wins}W {r.losses}L ({wr})")
             embed = discord.Embed(title=f"{g.name} leaderboard", description="\n".join(lines), colour=discord.Colour.gold())
             embed.set_footer(text=f"Page {len(pages) + 1} of {-(-len(rows) // PAGE_SIZE)} · min {min_games} games")
             pages.append(embed)

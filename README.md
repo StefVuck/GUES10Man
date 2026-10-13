@@ -43,7 +43,7 @@ Each player has a prior: a virtual win and a virtual loss against a player at th
 
 The model's own numbers are on a "team sum" scale, where a 400-point gap between team totals means 10 to 1 odds. The bot shows `1000 + 5 × fitted rating` instead. That keeps the familiar rank-based scale and means the gap between two teams' *average* Elo reads like ordinary Elo: 100 points is roughly 64%.
 
-After a match, captains can enter each team's scoreboard (ACS for Valorant) using the buttons on the result. Each team's scoreboard is treated as a Plackett-Luce ranking, in which the top scorer beats their four teammates, the second beats the remaining three, and so on. This lets the model tell apart players who always win together. Only the order of the scores matters, not their size. `PRIOR` and `PERF_WEIGHT` in `gues10man/rating.py` control how strongly seeds and scoreboards count.
+After a match, captains can enter each team's scoreboard (ACS for Valorant) using the buttons on the result. Each team's scoreboard is treated as a Plackett-Luce ranking, in which the top scorer beats their four teammates, the second beats the remaining three, and so on. This lets the model tell apart players who always win together. Only the order of the scores matters, not their size. `PRIOR` and `PERF_WEIGHT` in `gues10man/rating.py` control how strongly seeds and scoreboards count. They were chosen by replaying simulated leagues and scoring how well each setting predicted the next game. With a prior of 1, one win was worth about 185 points and early predictions were worse than a coin flip. A prior of 20 with a performance weight of 0.3 did best, and a single even win is then worth about 35 points. The simulation's assumptions about skill spread and how much ACS reflects skill are guesses, so revisit these once there is real data.
 
 ## Profiles and leaderboards
 
@@ -52,6 +52,12 @@ After a match, captains can enter each team's scoreboard (ACS for Valorant) usin
 ## Rank lookups and tracker.gg
 
 Tracker.gg doesn't offer a public Valorant API, and its pages sit behind Cloudflare and its terms forbid scraping, so the bot uses the community [HenrikDev Valorant API](https://api.henrikdev.xyz) instead. It takes the same `Name#Tag` input and returns current and peak rank. A free key from its dashboard is plenty for a uni server. If no key is set, `/link` explains that and players fall back to `/setrank`.
+
+## Trying it out
+
+Staff can run `/test run` in any text channel to watch a full session play out with fake players. Ten bot players (Bot Ace to Bot Jett, seeded from Silver 2 to Ascendant 3) and you fill a lobby. The first game goes through a captains draft, with picks appearing one at a time, followed by a simulated result. Three more lobbies then use auto balance and include a simulated ACS scoreboard. Each fake player has a fixed hidden skill near their seed, so repeated runs tell a consistent story. Afterwards, `/leaderboard`, `/profile` and `/history` with `game:Sandbox` show the results.
+
+Everything happens under a separate Sandbox game, so real ratings are never touched. `/test run include_me:False` uses fake players only, `step_seconds` controls how fast it plays, and `/test reset` wipes the sandbox.
 
 ## Development
 
