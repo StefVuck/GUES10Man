@@ -44,9 +44,10 @@ def hidden_skill(user_id: int, anchor: float) -> float:
 
 def custom_game_embed(game: CustomGame, linked: dict[str, int]) -> discord.Embed:
     score = " - ".join(f"{t} {game.rounds_won.get(t, '?')}" for t in game.team_names)
+    kind = "5v5, would count" if game.is_standard else f"{game.kind}, would be ignored"
     embed = discord.Embed(
         title=f"{game.map or 'Unknown map'} · {score}",
-        description=f"Winner: **{game.winner or 'unknown'}** · {game.rounds} rounds"
+        description=f"Winner: **{game.winner or 'unknown'}** · {game.rounds} rounds · {kind}"
         + (f" · {discord.utils.format_dt(game.started_at, 'R')}" if game.started_at else ""),
         colour=discord.Colour(0xFF4655),
     )
@@ -55,7 +56,7 @@ def custom_game_embed(game: CustomGame, linked: dict[str, int]) -> discord.Embed
         for p in game.team(team):
             acs = game.acs(p)
             who = p.riot_id + (f" (<@{linked[p.riot_id.lower()]}>)" if p.riot_id.lower() in linked else "")
-            stats = f"{acs:.0f} ACS · {p.kills}/{p.deaths}/{p.assists}" if acs is not None else "no stats"
+            stats = (f"{acs:.0f} ACS · " if acs is not None else "") + f"{p.kills}/{p.deaths}/{p.assists}"
             lines.append(f"{who} · {p.agent or '?'} · {stats}")
         embed.add_field(name=team, value="\n".join(lines)[:1024] or "-", inline=False)
     if game.match_id:

@@ -7,6 +7,8 @@ from gues10man.ranks import RankLookupError, parse_mmr_response, parse_riot_id
 def test_parse_riot_id():
     assert parse_riot_id("User#1234") == ("User", "1234")
     assert parse_riot_id("  some name#EUW ") == ("some name", "EUW")
+    assert parse_riot_id("name#εïз") == ("name", "εïз")
+    assert parse_riot_id("name#ab 12") == ("name", "ab 12")
     with pytest.raises(RankLookupError):
         parse_riot_id("no tag")
 

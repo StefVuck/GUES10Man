@@ -9,7 +9,7 @@ import aiohttp
 from .customs import CustomGame, parse_matches
 from .games import valorant_tier_to_rank
 
-RIOT_ID = re.compile(r"^(?P<name>[^#]{3,16})#(?P<tag>[A-Za-z0-9]{3,5})$")
+RIOT_ID = re.compile(r"^(?P<name>[^#]{3,16})#(?P<tag>[^#]{3,5})$")
 REGIONS = ("eu", "na", "ap", "kr", "latam", "br")
 PEAK_DISCOUNT_TIERS = 3
 

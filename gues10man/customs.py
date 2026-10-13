@@ -39,7 +39,23 @@ class CustomGame:
     players: list[CustomPlayer] = field(default_factory=list)
 
     def acs(self, player: CustomPlayer) -> float | None:
-        return player.score / self.rounds if self.rounds else None
+        # Deathmatch-style customs report one "round" with kills as the score.
+        return player.score / self.rounds if self.rounds > 1 else None
+
+    @property
+    def team_sizes(self) -> list[int]:
+        return [len(self.team(t)) for t in self.team_names]
+
+    @property
+    def kind(self) -> str:
+        if self.rounds <= 1:
+            return "deathmatch"
+        return "v".join(map(str, self.team_sizes)) or "unknown"
+
+    @property
+    def is_standard(self) -> bool:
+        """A proper 5v5 that could count towards ratings."""
+        return self.kind == "5v5" and len(self.team_names) == 2
 
     def team(self, name: str) -> list[CustomPlayer]:
         return sorted((p for p in self.players if p.team == name), key=lambda p: p.score, reverse=True)

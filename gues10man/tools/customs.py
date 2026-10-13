@@ -27,7 +27,8 @@ async def run(args: argparse.Namespace) -> int:
     finally:
         await client.close()
 
-    print(f"Answered by the {version} endpoint, {len(games)} custom game(s).\n")
+    standard = sum(g.is_standard for g in games)
+    print(f"Answered by the {version} endpoint: {len(games)} custom game(s), {standard} of them standard 5v5.\n")
     if args.raw:
         with open(args.raw, "w") as f:
             json.dump(payload, f, indent=2)
@@ -39,14 +40,13 @@ async def run(args: argparse.Namespace) -> int:
     for g in games:
         when = g.started_at.strftime("%Y-%m-%d %H:%M") if g.started_at else "unknown time"
         score = " - ".join(f"{t} {g.rounds_won.get(t, '?')}" for t in g.team_names)
-        print(f"{when}  {g.map or '?'}  {g.mode or '?'}  {score}  winner: {g.winner or '?'}  ({g.rounds} rounds)")
+        tag = "5v5, would count" if g.is_standard else f"{g.kind}, would be ignored"
+        print(f"{when}  {g.map or '?'}  {score}  winner: {g.winner or '?'}  ({g.rounds} rounds, {tag})")
         for team in g.team_names:
             for p in g.team(team):
                 acs = g.acs(p)
-                print(
-                    f"    {team:<5} {p.riot_id:<24} {p.agent or '?':<10} "
-                    f"{acs:>5.0f} ACS  {p.kills}/{p.deaths}/{p.assists}" if acs is not None else f"    {team} {p.riot_id}"
-                )
+                acs_text = f"{acs:>5.0f} ACS" if acs is not None else "  n/a ACS"
+                print(f"    {team:<5} {p.riot_id:<24} {p.agent or '?':<10} {acs_text}  {p.kills}/{p.deaths}/{p.assists}")
         print()
     if not games:
         print("No custom games came back. Play a custom recently, or run with --shape to check the response layout.")

@@ -61,3 +61,21 @@ def test_empty_and_odd_payloads():
 def test_shape_hides_values():
     shape = json_shape(V4)
     assert "name: str" in shape and "User" not in shape and "Ascent" not in shape
+
+
+def _game(per_team, rounds):
+    players = [
+        {"name": f"P{i}", "tag": "0000", "team_id": "Red" if i < per_team else "Blue", "stats": {"score": 3000}}
+        for i in range(per_team * 2)
+    ]
+    teams = [{"team_id": "Red", "won": True, "rounds": {"won": 1}}, {"team_id": "Blue", "rounds": {"won": 0}}]
+    return {"data": [{"metadata": {"map": {"name": "X"}}, "players": players, "teams": teams, "rounds": [{}] * rounds}]}
+
+
+def test_game_kinds():
+    (five,) = parse_matches(_game(5, 20))
+    (skirmish,) = parse_matches(_game(2, 19))
+    (dm,) = parse_matches(_game(3, 1))
+    assert five.is_standard and five.kind == "5v5"
+    assert not skirmish.is_standard and skirmish.kind == "2v2"
+    assert not dm.is_standard and dm.kind == "deathmatch" and dm.acs(dm.players[0]) is None
