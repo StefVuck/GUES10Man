@@ -21,7 +21,7 @@ class RecordingChannel:
 
 @pytest.fixture
 async def bot(tmp_path):
-    bot = TenManBot(Settings("token", None, None, "eu", str(tmp_path / "sandbox.db")))
+    bot = TenManBot(Settings("token", (), None, "eu", str(tmp_path / "sandbox.db")))
     await bot.db.connect()
     yield bot
     await bot.db.close()

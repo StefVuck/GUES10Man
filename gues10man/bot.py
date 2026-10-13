@@ -41,19 +41,27 @@ class TenManBot(commands.Bot):
         FAKE_PLAYERS.update(await self.db.fake_players())
         for ext in EXTENSIONS:
             await self.load_extension(ext)
-        if self.settings.guild_id:
-            guild = discord.Object(self.settings.guild_id)
+        if not self.settings.guild_ids:
+            await self.tree.sync()
+            return
+        refused = []
+        for guild_id in self.settings.guild_ids:
+            guild = discord.Object(guild_id)
             self.tree.copy_global_to(guild=guild)
             try:
                 await self.tree.sync(guild=guild)
             except discord.Forbidden:
-                raise SystemExit(
-                    f"Discord refused to register commands in server {self.settings.guild_id}. "
-                    "Check GUILD_ID is the server's ID (right-click the server icon, Copy Server ID) and that the bot "
-                    "has been invited to that server with the 'bot' and 'applications.commands' scopes."
-                ) from None
-        else:
-            await self.tree.sync()
+                refused.append(guild_id)
+                log.error("Discord refused to register commands in server %s", guild_id)
+        if refused:
+            message = (
+                f"Discord refused to register commands in server(s) {', '.join(map(str, refused))}. "
+                "Check each GUILD_ID is a server's ID (right-click the server icon, Copy Server ID) and that the bot "
+                "has been invited there with the 'bot' and 'applications.commands' scopes."
+            )
+            if len(refused) == len(self.settings.guild_ids):
+                raise SystemExit(message)
+            log.warning(message)
 
     async def refit(self, game: str, credit_match: int | None = None) -> None:
         """Refits every rating for a game from its full match history. When

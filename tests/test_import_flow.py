@@ -11,7 +11,7 @@ from gues10man.customs import CustomGame, CustomPlayer
 
 @pytest.fixture
 async def bot(tmp_path):
-    bot = TenManBot(Settings("token", None, None, "eu", str(tmp_path / "import.db")))
+    bot = TenManBot(Settings("token", (), None, "eu", str(tmp_path / "import.db")))
     await bot.db.connect()
     for ext in EXTENSIONS:
         await bot.load_extension(ext)

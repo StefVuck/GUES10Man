@@ -3,7 +3,7 @@ from gues10man.config import Settings
 
 
 async def test_extensions_register_commands(tmp_path):
-    settings = Settings("token", None, None, "eu", str(tmp_path / "bot.db"))
+    settings = Settings("token", (), None, "eu", str(tmp_path / "bot.db"))
     bot = TenManBot(settings)
     await bot.db.connect()
     for ext in EXTENSIONS:

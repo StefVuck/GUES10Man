@@ -8,7 +8,7 @@ def interaction(user_id, owner_id=None, staff=()):
     async def is_owner(user):
         return user.id == owner_id
 
-    settings = Settings("t", None, None, "eu", ":memory:", frozenset(staff))
+    settings = Settings("t", (), None, "eu", ":memory:", frozenset(staff))
     client = SimpleNamespace(settings=settings, is_owner=is_owner)
     return SimpleNamespace(user=SimpleNamespace(id=user_id), client=client)
 
@@ -34,3 +34,12 @@ def test_missing_channel_permissions():
     assert missing_channel_permissions(ok) is None
     hidden = SimpleNamespace(app_permissions=discord.Permissions(send_messages=True))
     assert "View Channel" in missing_channel_permissions(hidden)
+
+
+def test_guild_ids_parse_from_env(monkeypatch):
+    monkeypatch.setattr("gues10man.config.load_dotenv", lambda: None)
+    monkeypatch.setenv("DISCORD_TOKEN", "t")
+    monkeypatch.setenv("GUILD_ID", "111, 222")
+    assert Settings.from_env().guild_ids == (111, 222)
+    monkeypatch.setenv("GUILD_ID", "")
+    assert Settings.from_env().guild_ids == ()

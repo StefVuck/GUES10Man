@@ -14,7 +14,7 @@ cp .env.example .env   # then fill in DISCORD_TOKEN and HENRIK_API_KEY
 python -m gues10man
 ```
 
-When you create the application in the [Discord developer portal](https://discord.com/developers/applications), invite the bot with the `bot` and `applications.commands` scopes. It needs Send Messages and Embed Links. It doesn't use any privileged intents. While you're developing, set `GUILD_ID` to the server's ID so that slash command changes appear straight away rather than after Discord's global sync delay.
+When you create the application in the [Discord developer portal](https://discord.com/developers/applications), invite the bot with the `bot` and `applications.commands` scopes. It needs Send Messages and Embed Links. It doesn't use any privileged intents. Set `GUILD_ID` to the server's ID so that slash command changes appear straight away rather than after Discord's global sync delay. Several servers can be listed with commas, for example a test server and the real one.
 
 Once the bot is in the server, a member with Manage Server should run:
 
