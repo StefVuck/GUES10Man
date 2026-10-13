@@ -11,7 +11,7 @@ from discord.ext import commands
 
 from ..elo import expected
 from ..games import GAMES
-from ..util import FAKE_PLAYERS, reply, staff_only
+from ..util import FAKE_PLAYERS, missing_channel_permissions, reply, staff_only
 
 if TYPE_CHECKING:
     from ..bot import TenManBot
@@ -145,9 +145,14 @@ class Sandbox(commands.Cog):
         if not isinstance(interaction.channel, discord.abc.Messageable) or interaction.guild is None:
             await reply(interaction, "Run this in a server text channel.")
             return
+        problem = missing_channel_permissions(interaction)
+        if problem:
+            await reply(interaction, problem)
+            return
         self.running = True
         await interaction.response.defer(ephemeral=True, thinking=True)
         try:
+            await self.cancel_leftovers()
             tester = interaction.user.id if include_me else None
             note = ""
             if tester is not None and await self.db.active_match_for(tester):
@@ -177,9 +182,17 @@ class Sandbox(commands.Cog):
             )
         except Exception as e:
             log.exception("Sandbox run failed")
+            await self.cancel_leftovers()
             await reply(interaction, f"The sandbox run failed: {e}")
         finally:
             self.running = False
+
+    async def cancel_leftovers(self) -> None:
+        """Only one run happens at a time, so any unfinished sandbox match is from a run that failed."""
+        for m in await self.db.active_matches():
+            if m["game"] == GAME:
+                self.lobby.drafts.pop(m["id"], None)
+                await self.db.update_match(m["id"], status="cancelled")
 
     @test.command(name="reset", description="Delete all sandbox matches and ratings")
     @staff_only()

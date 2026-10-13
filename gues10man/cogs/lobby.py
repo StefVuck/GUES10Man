@@ -14,7 +14,7 @@ from discord.ext import commands
 from ..balance import auto_balance, choose_captains, snake_order
 from ..elo import PlayerRating, win_probability
 from ..games import DEFAULT_RATING, GAMES, Game
-from ..util import FAKE_PLAYERS, GAME_CHOICES, mention, fmt_delta, fmt_rating, is_staff, reply, staff_only
+from ..util import FAKE_PLAYERS, GAME_CHOICES, missing_channel_permissions, mention, fmt_delta, fmt_rating, is_staff, reply, staff_only
 
 if TYPE_CHECKING:
     from ..bot import TenManBot
@@ -324,6 +324,10 @@ class Lobby(commands.Cog):
     @staff_only()
     async def queue_open(self, interaction: discord.Interaction, game: str) -> None:
         assert interaction.guild is not None and interaction.channel is not None
+        problem = missing_channel_permissions(interaction)
+        if problem:
+            await reply(interaction, problem)
+            return
         existing = await self.db.get_queue(interaction.guild.id, game)
         if existing and existing["message_id"]:
             old = interaction.guild.get_channel(existing["channel_id"])

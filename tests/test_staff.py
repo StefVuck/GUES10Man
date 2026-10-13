@@ -23,3 +23,14 @@ async def test_listed_user_is_staff():
 
 async def test_other_users_are_not():
     assert not await is_staff(interaction(3, owner_id=1, staff={2}))
+
+
+def test_missing_channel_permissions():
+    import discord
+
+    from gues10man.util import missing_channel_permissions
+
+    ok = SimpleNamespace(app_permissions=discord.Permissions(309237730304))
+    assert missing_channel_permissions(ok) is None
+    hidden = SimpleNamespace(app_permissions=discord.Permissions(send_messages=True))
+    assert "View Channel" in missing_channel_permissions(hidden)

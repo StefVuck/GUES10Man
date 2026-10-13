@@ -36,6 +36,27 @@ async def is_staff(interaction: discord.Interaction) -> bool:
     return bool(config.staff_role_id and member.get_role(config.staff_role_id))
 
 
+CHANNEL_PERMISSIONS = {
+    "view_channel": "View Channel",
+    "send_messages": "Send Messages",
+    "embed_links": "Embed Links",
+    "read_message_history": "Read Message History",
+}
+
+
+def missing_channel_permissions(interaction: discord.Interaction) -> str | None:
+    """Slash commands reach the bot even in channels it can't post in, so check
+    before starting anything that posts messages."""
+    perms = interaction.app_permissions
+    missing = [label for attr, label in CHANNEL_PERMISSIONS.items() if not getattr(perms, attr)]
+    if not missing:
+        return None
+    return (
+        f"I can't post in this channel because I'm missing: {', '.join(missing)}. "
+        "Give the bot (or its role) these permissions here, or use a channel it can already see."
+    )
+
+
 def staff_only():
     async def predicate(interaction: discord.Interaction) -> bool:
         if await is_staff(interaction):

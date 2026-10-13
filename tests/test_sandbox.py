@@ -61,3 +61,13 @@ async def test_sandbox_session(bot):
 
     await bot.db.wipe_game("sandbox")
     assert await bot.db.leaderboard("sandbox", "elo", min_games=0) == []
+
+
+async def test_failed_run_leftovers_are_cancelled(bot):
+    for ext in EXTENSIONS:
+        await bot.load_extension(ext)
+    sandbox = bot.get_cog("Sandbox")
+    roster = await sandbox.setup_players(None)
+    stuck = await bot.db.create_match(1, "sandbox", roster)
+    await sandbox.cancel_leftovers()
+    assert (await bot.db.get_match(stuck))["status"] == "cancelled"
