@@ -38,7 +38,14 @@ class TenManBot(commands.Bot):
         if self.settings.guild_id:
             guild = discord.Object(self.settings.guild_id)
             self.tree.copy_global_to(guild=guild)
-            await self.tree.sync(guild=guild)
+            try:
+                await self.tree.sync(guild=guild)
+            except discord.Forbidden:
+                raise SystemExit(
+                    f"Discord refused to register commands in server {self.settings.guild_id}. "
+                    "Check GUILD_ID is the server's ID (right-click the server icon, Copy Server ID) and that the bot "
+                    "has been invited to that server with the 'bot' and 'applications.commands' scopes."
+                ) from None
         else:
             await self.tree.sync()
 
@@ -59,7 +66,7 @@ class TenManBot(commands.Bot):
         await super().close()
 
     async def on_ready(self) -> None:
-        log.info("Logged in as %s", self.user)
+        log.info("Logged in as %s, in servers: %s", self.user, ", ".join(f"{g.name} ({g.id})" for g in self.guilds) or "none")
 
     async def on_app_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
         if isinstance(error, app_commands.CheckFailure):
