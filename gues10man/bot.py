@@ -17,7 +17,13 @@ from .util import FAKE_PLAYERS, reply
 
 log = logging.getLogger("gues10man")
 
-EXTENSIONS = ("gues10man.cogs.lobby", "gues10man.cogs.players", "gues10man.cogs.admin", "gues10man.cogs.sandbox")
+EXTENSIONS = (
+    "gues10man.cogs.lobby",
+    "gues10man.cogs.players",
+    "gues10man.cogs.admin",
+    "gues10man.cogs.sandbox",
+    "gues10man.cogs.importer",
+)
 
 
 class TenManBot(commands.Bot):

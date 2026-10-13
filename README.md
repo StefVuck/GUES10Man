@@ -35,6 +35,8 @@ The match message lets any of the ten choose how teams are made:
 
 Once teams are locked in, a coin flip decides which team starts on attack and which on defence (Terrorists and Counter-Terrorists in CS2, blue and red side in League). The bot picks a random map from the game's pool, shows the predicted win chance and posts a reply pinging each side by match number, so players in overlapping games know which lobby and side they're on. Captains are marked with (C). Captains can reroll the map. Either captain or staff reports the winner with a button, optionally entering the round score, and Elo changes are posted on the match message. `/match report` does the same from a command: name any player on the winning team rather than picking a side.
 
+For Valorant, when `HENRIK_API_KEY` is set, a live match also has a **Game finished** button. When a captain presses it, the bot looks the custom game up in Riot's match history through the linked Riot IDs. It accepts a game only if it is a standard 5v5 that started after the match went live, at least two (and 60%) of the linked players appear in it, and each of our teams is entirely on one side. It then records the winner, score, real map and every linked player's ACS. Riot can take a few minutes to publish a game, so the bot checks once a minute for up to ten minutes and updates a status message as it goes. `/match import` does the same from a command, and the result buttons still work if a game can't be found.
+
 Staff can cancel a match at any stage. They can swap a player out with `/match sub`, and `/match undo` reverses a mistaken result, putting the match back to live so it can be reported again.
 
 ## Elo
@@ -48,6 +50,8 @@ The model's own numbers are on a "team sum" scale, where a 400-point gap between
 After a match, captains can enter each team's scoreboard (ACS for Valorant) using the buttons on the result. Each team's scoreboard is treated as a Plackett-Luce ranking, in which the top scorer beats their four teammates, the second beats the remaining three, and so on. This lets the model tell apart players who always win together. Only the order of the scores matters, not their size. `PRIOR` and `PERF_WEIGHT` in `gues10man/rating.py` control how strongly seeds and scoreboards count. They were chosen by replaying simulated leagues and scoring how well each setting predicted the next game. With a prior of 1, one win was worth about 185 points and early predictions were worse than a coin flip. A prior of 20 with a performance weight of 0.3 did best, and a single even win is then worth about 35 points. The simulation's assumptions about skill spread and how much ACS reflects skill are guesses, so revisit these once there is real data.
 
 ## Profiles and leaderboards
+
+`/elo help` explains the rating system to players in plain language and cites the two papers it is based on: Coulom's "Computing Elo Ratings of Move Patterns in the Game of Go" (ICGA Journal, 2007) and Hunter's "MM algorithms for generalized Bradley-Terry models" (Annals of Statistics, 2004).
 
 `/profile` shows a player's Elo with its approximate in-game rank, peak Elo, record and win rate, captain record, recent form and current streak, their record on each map, and the teammates they win with most often. `/history` lists recent matches with score, map and Elo change. `/leaderboard` can be sorted by Elo, wins or win rate, with a minimum games filter, and pages through larger servers.
 

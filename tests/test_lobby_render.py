@@ -10,7 +10,7 @@ from gues10man.db import Database
 async def lobby(tmp_path):
     db = Database(str(tmp_path / "lobby.db"))
     await db.connect()
-    bot = SimpleNamespace(db=db, get_guild=lambda _id: None)
+    bot = SimpleNamespace(db=db, get_guild=lambda _id: None, henrik=SimpleNamespace(enabled=True))
     yield Lobby(bot)
     await db.close()
 
@@ -154,3 +154,12 @@ def test_history_entry_layout():
     text = history_embed("Tester", GAMES["valorant"], rows).description
     assert "**1W 0L**" in text and "**#12** · **Win** · 13-6 · Ascent" in text
     assert "Attackers (C) · 1250 → 1285 (+35) · 245 ACS" in text
+
+
+def test_elo_help_fits_discord_limits():
+    from gues10man.cogs.players import elo_help_embed
+
+    embed = elo_help_embed()
+    assert len(embed) <= 6000
+    assert all(len(f.value) <= 1024 for f in embed.fields)
+    assert "Coulom" in embed.fields[-1].value and "Hunter" in embed.fields[-1].value

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import random
+import time
 from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
@@ -77,6 +78,7 @@ MATCH_BUTTONS = {
     "auto": ("Auto balance", discord.ButtonStyle.primary),
     "draft": ("Captains draft (top Elo)", discord.ButtonStyle.primary),
     "draftr": ("Captains draft (random)", discord.ButtonStyle.secondary),
+    "done": ("Game finished", discord.ButtonStyle.primary),
     "wina": ("Team A won", discord.ButtonStyle.success),
     "winb": ("Team B won", discord.ButtonStyle.success),
     "map": ("Reroll map", discord.ButtonStyle.secondary),
@@ -477,8 +479,13 @@ class Lobby(commands.Cog):
 
         prob = win_probability([ratings[p["user_id"]] for p in team_a], [ratings[p["user_id"]] for p in team_b])
         embed.description = f"Predicted: {game.side('A')} {prob:.0%} / {game.side('B')} {1 - prob:.0%}"
-        embed.set_footer(text="Staff or a captain reports the winner when the game ends.")
-        actions = ["wina", "winb"] + (["map"] if game.maps else []) + ["cancel"]
+        importable = game.key == "valorant" and self.bot.henrik.enabled
+        embed.set_footer(
+            text="When the game ends, a captain presses Game finished and the result is fetched from Riot."
+            if importable
+            else "Staff or a captain reports the winner when the game ends."
+        )
+        actions = (["done"] if importable else []) + ["wina", "winb"] + (["map"] if game.maps else []) + ["cancel"]
         return embed, match_view(match_id, actions, game)
 
     async def refresh_match_message(self, match_id: int) -> None:
@@ -552,6 +559,13 @@ class Lobby(commands.Cog):
             await interaction.response.send_modal(
                 ScoreboardModal(self, match_id, game.side(team), players, game.score_label)
             )
+            return
+
+        if action == "done":
+            if not await self.can_manage_match(interaction, match_id, captains_only=True):
+                await reply(interaction, "Only staff or a captain can say the game is finished.")
+                return
+            await self.bot.get_cog("Importer").start(interaction, match_id)
             return
 
         if action == "cancel":
@@ -709,7 +723,9 @@ class Lobby(commands.Cog):
         m = await self.db.get_match(match_id)
         if random.random() < 0.5:
             await self.db.swap_sides(match_id)
-        await self.db.update_match(match_id, status="live", map=self.random_map(GAMES[m["game"]]))
+        await self.db.update_match(
+            match_id, status="live", map=self.random_map(GAMES[m["game"]]), live_at=int(time.time())
+        )
         await self.respond_with_match(interaction, match_id)
         await self.announce_teams(match_id)
 
@@ -744,7 +760,13 @@ class Lobby(commands.Cog):
         await reply(interaction, error or f"Result recorded for match #{match_id}.")
 
     async def record_result(
-        self, match_id: int, winner: str, score: tuple[int, int] | None, reported_by: int
+        self,
+        match_id: int,
+        winner: str,
+        score: tuple[int, int] | None,
+        reported_by: int,
+        scores: dict[int, float] | None = None,
+        map_name: str | None = None,
     ) -> str | None:
         """Returns an error message, or None once the result is stored and ratings refitted."""
         async with self.locks[("match", match_id)]:
@@ -754,6 +776,10 @@ class Lobby(commands.Cog):
             if score and ((score[0] > score[1]) != (winner == "A")):
                 return "The score doesn't match the winning team."
             teams = {p["user_id"]: p["team"] for p in await self.db.match_players(match_id)}
+            if scores:
+                await self.db.set_scores(match_id, scores)
+            if map_name:
+                await self.db.update_match(match_id, map=map_name)
             await self.db.apply_result(match_id, m["game"], winner, teams, score, reported_by)
             await self.bot.refit(m["game"], credit_match=match_id)
         await self.refresh_match_message(match_id)
@@ -811,6 +837,13 @@ class Lobby(commands.Cog):
         if winner_rounds is not None and loser_rounds is not None:
             score = (winner_rounds, loser_rounds) if team == "A" else (loser_rounds, winner_rounds)
         await self.finish_match(interaction, match_id, team, score)
+
+    @match.command(name="import", description="Fetch a live match's result from Riot's match history")
+    async def match_import(self, interaction: discord.Interaction, match_id: int) -> None:
+        if not await self.can_manage_match(interaction, match_id, captains_only=True):
+            await reply(interaction, "Only staff or a captain can fetch the result.")
+            return
+        await self.bot.get_cog("Importer").start(interaction, match_id)
 
     @match.command(name="cancel", description="Cancel a match without affecting ratings")
     @staff_only()

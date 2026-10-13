@@ -64,6 +64,7 @@ CREATE TABLE IF NOT EXISTS matches (
     score_b INTEGER,
     reported_by INTEGER,
     created_at INTEGER NOT NULL,
+    live_at INTEGER,
     finished_at INTEGER
 );
 
@@ -122,7 +123,18 @@ class Database:
         self.conn.row_factory = aiosqlite.Row
         await self.conn.execute("PRAGMA foreign_keys = ON")
         await self.conn.executescript(SCHEMA)
+        await self._migrate()
         await self.conn.commit()
+
+    async def _migrate(self) -> None:
+        """Adds columns introduced after a database was first created."""
+        added = {"matches": {"live_at": "INTEGER"}}
+        for table, columns in added.items():
+            async with self.db.execute(f"PRAGMA table_info({table})") as cur:
+                existing = {r["name"] for r in await cur.fetchall()}
+            for column, kind in columns.items():
+                if column not in existing:
+                    await self.db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {kind}")
 
     async def fake_players(self) -> dict[int, str]:
         async with self.db.execute("SELECT user_id, name FROM fake_players") as cur:
