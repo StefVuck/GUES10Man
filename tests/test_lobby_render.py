@@ -94,3 +94,44 @@ async def test_announcement_uses_game_sides_and_swap(tmp_path, monkeypatch):
     attackers, defenders = channel.sent[0].split("**Defenders:**")
     assert "**Attackers:** <@5> (C)" in attackers and "<@0> (C)" in defenders
     await db.close()
+
+
+async def test_captains_get_pool_dm(tmp_path, monkeypatch):
+    import discord
+
+    db = Database(str(tmp_path / "dm.db"))
+    await db.connect()
+    inbox = {}
+
+    class FakeUser:
+        def __init__(self, uid):
+            self.uid = uid
+
+        async def send(self, embed):
+            inbox[self.uid] = embed
+
+    channel = FakeChannel()
+    monkeypatch.setattr(discord.abc, "Messageable", FakeChannel)
+    bot = SimpleNamespace(
+        db=db, get_guild=lambda _id: None, get_channel=lambda _id: channel, get_user=lambda uid: FakeUser(uid)
+    )
+    cog = Lobby(bot)
+    match_id = await db.create_match(1, "valorant", list(range(10)))
+    for uid in range(10):
+        await db.seed_rating(uid, "valorant", 1000 + uid * 50, None)
+        await db.write_ratings("valorant", {uid: 1000 + uid * 50})
+    await db.set_riot_id(4, "Arsenic#9738", "eu")
+    await db.update_match(match_id, channel_id=99, message_id=7)
+    cog.drafts[match_id] = DraftState(
+        captains=(8, 9), order=[0, 1, 1, 0, 0, 1, 1, 0], teams=([8], [9]), pool=list(range(8))
+    )
+    await cog.dm_captains(match_id)
+
+    first, second = inbox[8], inbox[9]
+    assert "pick **first**, on picks 1, 4, 5, 8" in first.description
+    assert "pick **second**, on picks 2, 3, 6, 7" in second.description
+    pool = first.fields[0].value.splitlines()
+    assert len(pool) == 8 and pool[0].startswith("**7**")
+    assert "Riot ID Arsenic#9738" in first.fields[0].value
+    assert channel.sent == []
+    await db.close()

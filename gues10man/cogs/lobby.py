@@ -204,6 +204,7 @@ class Lobby(commands.Cog):
         self.drafts: dict[int, DraftState] = {}
         self.names: dict[int, str] = {}
         self._recovered = False
+        self._tasks: set[asyncio.Task] = set()
 
     async def cog_load(self) -> None:
         self.bot.add_dynamic_items(QueueButton, MatchButton, DraftSelect)
@@ -596,6 +597,67 @@ class Lobby(commands.Cog):
         await self.db.set_teams(match_id, [first.user_id], [second.user_id], (first.user_id, second.user_id))
         await self.db.update_match(match_id, status="drafting", mode=f"draft-{method}")
         await self.respond_with_match(interaction, match_id)
+        task = asyncio.create_task(self.dm_captains(match_id))
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+
+    async def pool_embed(self, match_id: int, captain: int) -> discord.Embed:
+        """Scouting list sent privately to a captain at the start of a draft."""
+        m = await self.db.get_match(match_id)
+        game = GAMES[m["game"]]
+        state = self.drafts[match_id]
+        guild = self.bot.get_guild(m["guild_id"])
+        side = state.captains.index(captain)
+        opponent = state.captains[1 - side]
+
+        async def describe(uid: int) -> str:
+            r = await self.db.get_or_create_rating(uid, game.key, DEFAULT_RATING)
+            name = await self.name(guild, uid) if guild else str(uid)
+            parts = [f"**{name}**", f"{fmt_rating(r.rating)} Elo"]
+            approx = game.rank_for_rating(r.rating)
+            if approx:
+                parts.append(f"~{approx}")
+            parts.append(f"{r.wins}W {r.losses}L" + (f" ({r.wins / r.games:.0%})" if r.games else ", no games yet"))
+            player = await self.db.get_player(uid)
+            if game.key == "valorant" and player and player["riot_id"]:
+                parts.append(f"Riot ID {player['riot_id']}")
+            return " · ".join(parts)
+
+        ratings = await self.ratings(state.pool, game.key)
+        pool = sorted(state.pool, key=lambda u: ratings[u].rating, reverse=True)
+        lines = [await describe(u) for u in pool]
+        turns = [i + 1 for i, s in enumerate(state.order) if s == side]
+        link = f"https://discord.com/channels/{m['guild_id']}/{m['channel_id']}/{m['message_id']}"
+        embed = discord.Embed(
+            title=f"Match #{match_id} draft: you're a captain",
+            description=(
+                f"You pick **{'first' if side == 0 else 'second'}**, on picks {', '.join(map(str, turns))} of {len(state.order)}.\n"
+                f"Opposing captain: {await describe(opponent)}\n\n"
+                f"Make your picks on the [match message]({link})."
+            ),
+            colour=COLOUR,
+        )
+        embed.add_field(name=f"Player pool ({len(pool)})", value="\n".join(lines)[:1024], inline=False)
+        return embed
+
+    async def dm_captains(self, match_id: int) -> None:
+        state = self.drafts.get(match_id)
+        if state is None:
+            return
+        m = await self.db.get_match(match_id)
+        failed = []
+        for captain in state.captains:
+            try:
+                user = self.bot.get_user(captain) or await self.bot.fetch_user(captain)
+                await user.send(embed=await self.pool_embed(match_id, captain))
+            except discord.HTTPException:
+                failed.append(captain)
+        channel = self.bot.get_channel(m["channel_id"])
+        if failed and isinstance(channel, discord.abc.Messageable):
+            await channel.send(
+                " ".join(f"<@{u}>" for u in failed)
+                + " I couldn't DM you the player pool. Allow DMs from server members to get it next time."
+            )
 
     async def handle_pick(self, interaction: discord.Interaction, match_id: int, picked: int) -> None:
         async with self.locks[("match", match_id)]:
