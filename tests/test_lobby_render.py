@@ -162,4 +162,5 @@ def test_elo_help_fits_discord_limits():
     embed = elo_help_embed()
     assert len(embed) <= 6000
     assert all(len(f.value) <= 1024 for f in embed.fields)
+    assert len(embed) < 1500
     assert "Coulom" in embed.fields[-1].value and "Hunter" in embed.fields[-1].value

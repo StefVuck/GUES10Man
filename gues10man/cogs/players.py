@@ -8,7 +8,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from ..games import DEFAULT_RATING, GAMES, Game
-from ..rating import PERF_WEIGHT, PRIOR
+from ..rating import PERF_WEIGHT
 from ..ranks import REGIONS, RankLookupError
 from ..util import GAME_CHOICES, mention, fmt_delta, fmt_rating, is_staff, reply
 
@@ -59,81 +59,28 @@ HUNTER_2004 = "https://doi.org/10.1214/aos/1079120141"
 
 
 def elo_help_embed() -> discord.Embed:
-    prior = f"{PRIOR:g}"
-    perf = f"{PERF_WEIGHT:g}"
     embed = discord.Embed(
-        title="How Elo works here",
+        title="How the Elo works",
         description=(
-            "Your Elo isn't nudged up or down after each game. Every time a result is recorded, the bot refits "
-            "everyone's rating from the whole match history, asking one question: which ratings best explain who "
-            "has beaten whom?"
+            "It's not normal Elo. After every game the bot looks at every 10 man ever played and works out "
+            "the ratings that best explain who beat who.\n\n"
+            "- Your team's strength is everyone's Elo added up, so beating a stacked lobby gets you more.\n"
+            "- You start at your rank (`/link` or `/setrank`), or 1000 if you skip that. It takes a fair few "
+            "games to move far from it.\n"
+            "- ACS only counts against your own teammates. It decides who gets more of the credit, never "
+            "whether you won.\n"
+            "- Your Elo can move on days you didn't play, because people you've played with or against got "
+            "new results.\n"
+            "- A 100 Elo gap between team averages is about a 64% chance to win."
         ),
         colour=discord.Colour(0xFF4655),
     )
     embed.add_field(
-        name="Teams, not individuals",
+        name="Nerd stuff",
         value=(
-            "This is a Bradley-Terry model, the statistical model behind Elo. Each player has a strength, and a "
-            "team's strength is the product of its players' strengths, which in Elo terms is the sum of their "
-            "ratings. Rémi Coulom used this team form to rate Go move patterns, treating each move as a team of "
-            "features competing against the other legal moves. Here, each match is two teams of five competing. "
-            "The ratings are found with Hunter's MM algorithm. Because everything is refitted together, beating a "
-            "strong lobby counts for more, and your rating can shift slightly when people you have played with or "
-            "against get new results."
-        ),
-        inline=False,
-    )
-    embed.add_field(
-        name="Where you start",
-        value=(
-            "Each player gets a prior: as well as their real games, they are given "
-            f"{prior} virtual wins and {prior} virtual losses against a player at their seed rating. A new player "
-            "therefore sits exactly on their seed, and real results take over as games build up. Use `/link` to "
-            "seed from your Valorant rank or `/setrank` to choose one; otherwise you start at 1000."
-        ),
-        inline=False,
-    )
-    embed.add_field(
-        name="Scoreboards",
-        value=(
-            "When a match has ACS, each team's scoreboard is turned into a ranking. The top scorer \"beats\" "
-            "their four teammates, the second beats the remaining three, and so on. This is a Plackett-Luce "
-            "ranking, which Hunter's paper shows fits with the same kind of update. These count for "
-            f"{perf} of a match result. Only the order of the scores is used, so a single stat-padded game can't "
-            "run away with your rating. Scores are ranked within your team, so they only decide how credit for "
-            "the result is shared between teammates and never outweigh the result itself."
-        ),
-        inline=False,
-    )
-    embed.add_field(
-        name="Reading the numbers",
-        value=(
-            "Ratings are shown as 1000 plus 5 times the fitted value, so the gap between two teams' average Elo "
-            "reads like ordinary Elo. A 100 point gap means roughly a 64% chance of winning, and 200 points about "
-            "76%. Your profile shows the rank your Elo roughly corresponds to, and a rating is marked provisional "
-            "for the first 10 games."
-        ),
-        inline=False,
-    )
-    embed.add_field(
-        name="Caveats",
-        value=(
-            "ACS is an imperfect proxy for helping your team win. Duelists naturally score higher than controllers "
-            "or sentinels for equally useful play, which is why scoreboards carry a modest weight and only rank "
-            "teammates against each other. The weights were chosen by checking which settings best predict the "
-            "results of later matches, the same test the paper uses (mean log-evidence). They will be rechecked "
-            "once real match data has built up."
-        ),
-        inline=False,
-    )
-    embed.add_field(
-        name="Sources",
-        value=(
-            f"Rémi Coulom, [Computing Elo Ratings of Move Patterns in the Game of Go]({COULOM_2007}), "
-            "ICGA Journal 30(4), 2007.\n"
-            f"David R. Hunter, [MM algorithms for generalized Bradley-Terry models]({HUNTER_2004}), "
-            "Annals of Statistics 32(1), 2004.\n"
-            "The bot's implementation is in `gues10man/elo5v5.py`."
+            f"Team Bradley-Terry model fitted with the MM algorithm, from [Coulom 2007]({COULOM_2007}) "
+            f"and [Hunter 2004]({HUNTER_2004}). Scoreboards are Plackett-Luce rankings weighted at "
+            f"{PERF_WEIGHT:g} of a result. Code's in `gues10man/elo5v5.py`."
         ),
         inline=False,
     )
