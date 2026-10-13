@@ -52,7 +52,7 @@ class Players(commands.Cog):
         self.db = bot.db
 
     @app_commands.command(name="link", description="Link your Riot ID and seed your Valorant Elo from your rank")
-    @app_commands.describe(riot_id="Your Riot ID, for example Arsenic#9738", region="Your account region")
+    @app_commands.describe(riot_id="Your Riot ID, for example User#1234", region="Your account region")
     @app_commands.choices(region=[app_commands.Choice(name=r.upper(), value=r) for r in REGIONS])
     async def link(self, interaction: discord.Interaction, riot_id: str, region: str | None = None) -> None:
         region = region or self.bot.settings.valorant_region

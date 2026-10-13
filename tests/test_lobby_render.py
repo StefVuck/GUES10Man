@@ -120,7 +120,7 @@ async def test_captains_get_pool_dm(tmp_path, monkeypatch):
     for uid in range(10):
         await db.seed_rating(uid, "valorant", 1000 + uid * 50, None)
         await db.write_ratings("valorant", {uid: 1000 + uid * 50})
-    await db.set_riot_id(4, "Arsenic#9738", "eu")
+    await db.set_riot_id(4, "User#1234", "eu")
     await db.update_match(match_id, channel_id=99, message_id=7)
     cog.drafts[match_id] = DraftState(
         captains=(8, 9), order=[0, 1, 1, 0, 0, 1, 1, 0], teams=([8], [9]), pool=list(range(8))
@@ -132,7 +132,7 @@ async def test_captains_get_pool_dm(tmp_path, monkeypatch):
     assert "pick **second**, on picks 2, 3, 6, 7" in second.description
     pool = first.fields[0].value.splitlines()
     assert len(pool) == 8 and pool[0].startswith("**7**")
-    assert "Riot ID Arsenic#9738" in first.fields[0].value
+    assert "Riot ID User#1234" in first.fields[0].value
     assert channel.sent == []
     await db.close()
 

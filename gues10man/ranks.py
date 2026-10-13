@@ -39,7 +39,7 @@ class ValorantRank:
 def parse_riot_id(text: str) -> tuple[str, str]:
     m = RIOT_ID.match(text.strip())
     if not m:
-        raise RankLookupError("That doesn't look like a Riot ID. Use the format `Name#TAG`, for example `Arsenic#9738`.")
+        raise RankLookupError("That doesn't look like a Riot ID. Use the format `Name#TAG`, for example `User#1234`.")
     return m["name"].strip(), m["tag"]
 
 
