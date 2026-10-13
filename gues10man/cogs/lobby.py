@@ -82,7 +82,7 @@ MATCH_BUTTONS = {
     "done": ("Game finished", discord.ButtonStyle.primary),
     "wina": ("Team A won", discord.ButtonStyle.success),
     "winb": ("Team B won", discord.ButtonStyle.success),
-    "map": ("Reroll map", discord.ButtonStyle.secondary),
+    "reroll": ("Reroll maps", discord.ButtonStyle.secondary),
     "sca": ("Team A scoreboard", discord.ButtonStyle.secondary),
     "scb": ("Team B scoreboard", discord.ButtonStyle.secondary),
     "cancel": ("Cancel match", discord.ButtonStyle.danger),
@@ -106,7 +106,7 @@ class MatchButton(discord.ui.DynamicItem[discord.ui.Button], template=r"m:(?P<ac
         await lobby(interaction).handle_match_button(interaction, self.match_id, self.action)
 
 
-MAP_VOTE_SECONDS = 10
+MAP_VOTE_SECONDS = 20
 MAP_VOTE_OPTIONS = 3
 
 
@@ -115,6 +115,7 @@ class MapVote:
     options: list[str]
     ends_at: float
     votes: dict[int, str] = field(default_factory=dict)
+    rerolled_by: set[int] = field(default_factory=set)
 
     def count(self, map_name: str) -> int:
         return sum(v == map_name for v in self.votes.values())
@@ -273,6 +274,9 @@ class Lobby(commands.Cog):
                 )
                 await self.db.db.commit()
                 await self.refresh_match_message(m["id"])
+            elif m["status"] == "voting":
+                # The vote lived in memory, so pick from the whole pool and start the game.
+                await self.go_live(None, m["id"])
 
     # helpers
 
@@ -457,17 +461,6 @@ class Lobby(commands.Cog):
         if status == "setup":
             ordered = sorted(players, key=lambda p: ratings[p["user_id"]].rating, reverse=True)
             embed.description = "\n".join(line(p) for p in ordered)
-            vote = self.votes.get(match_id)
-            if vote:
-                ends = discord.utils.format_dt(datetime.fromtimestamp(vote.ends_at, tz=timezone.utc), "R")
-                embed.add_field(name=f"Map vote, closes {ends}", value="Players, pick the map you want to play.")
-                view = discord.ui.View(timeout=None)
-                for i, name in enumerate(vote.options):
-                    view.add_item(MapVoteButton(match_id, i, f"{name} ({vote.count(name)})"))
-                view.add_item(MatchButton("cancel", match_id))
-                return embed, view
-            if m["map"]:
-                embed.add_field(name="Map", value=m["map"])
             embed.set_footer(text="Any player in the match can choose how teams are picked.")
             return embed, match_view(match_id, ["auto", "draft", "draftr", "cancel"])
 
@@ -515,6 +508,21 @@ class Lobby(commands.Cog):
                 title += " - Winner"
             embed.add_field(name=title, value="\n".join(line(p, delta=done) for p in team), inline=True)
 
+        if status == "voting":
+            vote = self.votes.get(match_id)
+            if vote is None:
+                embed.description = "The map vote was interrupted. Staff can cancel the match."
+                return embed, match_view(match_id, ["cancel"])
+            ends = discord.utils.format_dt(datetime.fromtimestamp(vote.ends_at, tz=timezone.utc), "R")
+            embed.description = f"**Map vote, closes {ends}.** Everyone in the match gets a vote."
+            embed.set_footer(text="Each captain can reroll the three maps once.")
+            view = discord.ui.View(timeout=None)
+            for i, name in enumerate(vote.options):
+                view.add_item(MapVoteButton(match_id, i, f"{name} ({vote.count(name)})"))
+            view.add_item(MatchButton("reroll", match_id))
+            view.add_item(MatchButton("cancel", match_id))
+            return embed, view
+
         if m["map"]:
             embed.add_field(name="Map", value=m["map"], inline=False)
 
@@ -533,7 +541,7 @@ class Lobby(commands.Cog):
             if importable
             else "Staff or a captain reports the winner when the game ends."
         )
-        actions = (["done"] if importable else []) + ["wina", "winb"] + (["map"] if game.maps else []) + ["cancel"]
+        actions = (["done"] if importable else []) + ["wina", "winb", "cancel"]
         return embed, match_view(match_id, actions, game)
 
     async def refresh_match_message(self, match_id: int) -> None:
@@ -560,19 +568,14 @@ class Lobby(commands.Cog):
         if on_message and not interaction.response.is_done():
             embed, view = await self.render_match(match_id)
             await interaction.response.edit_message(embed=embed, view=view)
-        else:
-            await self.refresh_match_message(match_id)
+            return
+        # Discord shows "This interaction failed" for any click that goes unanswered.
+        if interaction is not None and not interaction.response.is_done():
+            await interaction.response.defer()
+        await self.refresh_match_message(match_id)
 
     async def post_match(self, channel: discord.abc.Messageable, match_id: int) -> None:
         players = await self.db.match_players(match_id)
-        game = GAMES[(await self.db.get_match(match_id))["game"]]
-        if len(game.maps) > 1:
-            self.votes[match_id] = MapVote(
-                random.sample(game.maps, min(MAP_VOTE_OPTIONS, len(game.maps))), time.time() + MAP_VOTE_SECONDS
-            )
-            task = asyncio.create_task(self.close_vote_later(match_id))
-            self._tasks.add(task)
-            task.add_done_callback(self._tasks.discard)
         embed, view = await self.render_match(match_id)
         message = await channel.send(
             content="Match ready! " + " ".join(f"{mention(p['user_id'])}" for p in players), embed=embed, view=view
@@ -583,8 +586,33 @@ class Lobby(commands.Cog):
             for p in players:
                 await self.name(message.guild, p["user_id"])
 
+    async def teams_ready(self, interaction: discord.Interaction | None, match_id: int) -> None:
+        """Teams are set: flip for sides, then vote on the map (or go straight live if there's no pool)."""
+        m = await self.db.get_match(match_id)
+        game = GAMES[m["game"]]
+        if random.random() < 0.5:
+            await self.db.swap_sides(match_id)
+        if len(game.maps) < 2:
+            await self.go_live(interaction, match_id)
+            return
+        self.votes[match_id] = MapVote(self.map_options(game), time.time() + MAP_VOTE_SECONDS)
+        await self.db.update_match(match_id, status="voting")
+        await self.respond_with_match(interaction, match_id)
+        task = asyncio.create_task(self.close_vote_later(match_id))
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+
+    @staticmethod
+    def map_options(game: Game, exclude: list[str] | None = None) -> list[str]:
+        pool = [m for m in game.maps if m not in (exclude or [])]
+        if len(pool) < MAP_VOTE_OPTIONS:
+            pool = list(game.maps)
+        return random.sample(pool, min(MAP_VOTE_OPTIONS, len(pool)))
+
     async def close_vote_later(self, match_id: int) -> None:
-        await asyncio.sleep(MAP_VOTE_SECONDS)
+        # A reroll pushes ends_at back, so keep sleeping until the current deadline.
+        while (vote := self.votes.get(match_id)) and time.time() < vote.ends_at:
+            await asyncio.sleep(vote.ends_at - time.time())
         await self.finish_vote(match_id)
 
     async def finish_vote(self, match_id: int) -> None:
@@ -593,10 +621,30 @@ class Lobby(commands.Cog):
             if vote is None:
                 return
             m = await self.db.get_match(match_id)
-            if not m or m["status"] != "setup":
+            if not m or m["status"] != "voting":
                 return
             await self.db.update_match(match_id, map=vote.winner())
-        await self.refresh_match_message(match_id)
+            await self.go_live(None, match_id)
+
+    async def reroll_maps(self, interaction: discord.Interaction, match_id: int) -> None:
+        async with self.locks[("match", match_id)]:
+            vote = self.votes.get(match_id)
+            if vote is None:
+                await reply(interaction, "The map vote has already closed.")
+                return
+            captains = {p["user_id"] for p in await self.db.match_players(match_id) if p["is_captain"]}
+            if interaction.user.id not in captains:
+                await reply(interaction, "Only the captains can reroll the maps.")
+                return
+            if interaction.user.id in vote.rerolled_by:
+                await reply(interaction, "You've already used your reroll.")
+                return
+            m = await self.db.get_match(match_id)
+            vote.rerolled_by.add(interaction.user.id)
+            vote.options = self.map_options(GAMES[m["game"]], exclude=vote.options)
+            vote.votes.clear()
+            vote.ends_at = time.time() + MAP_VOTE_SECONDS
+        await self.respond_with_match(interaction, match_id)
 
     async def handle_vote(self, interaction: discord.Interaction, match_id: int, index: int) -> None:
         vote = self.votes.get(match_id)
@@ -657,16 +705,8 @@ class Lobby(commands.Cog):
             await self.cancel_match(interaction, match_id)
             return
 
-        if action == "map":
-            if not await self.can_manage_match(interaction, match_id, captains_only=True):
-                await reply(interaction, "Only staff or a captain can reroll the map.")
-                return
-            m = await self.db.get_match(match_id)
-            if m["status"] != "live":
-                await reply(interaction, not_live(match_id, m))
-                return
-            await self.db.update_match(match_id, map=self.random_map(GAMES[m["game"]], exclude=m["map"]))
-            await self.respond_with_match(interaction, match_id)
+        if action == "reroll":
+            await self.reroll_maps(interaction, match_id)
             return
 
         if not await self.can_manage_match(interaction, match_id, captains_only=False):
@@ -695,7 +735,7 @@ class Lobby(commands.Cog):
         captains = (max(team_a, key=lambda p: p.rating).user_id, max(team_b, key=lambda p: p.rating).user_id)
         await self.db.set_teams(match_id, [p.user_id for p in team_a], [p.user_id for p in team_b], captains)
         await self.db.update_match(match_id, mode="auto")
-        await self.go_live(interaction, match_id)
+        await self.teams_ready(interaction, match_id)
 
     async def start_draft(self, interaction: discord.Interaction | None, match_id: int, method: str) -> None:
         m = await self.db.get_match(match_id)
@@ -799,12 +839,10 @@ class Lobby(commands.Cog):
             return
         del self.drafts[match_id]
         await self.db.set_teams(match_id, state.teams[0], state.teams[1], state.captains, state.pick_log)
-        await self.go_live(interaction, match_id)
+        await self.teams_ready(interaction, match_id)
 
     async def go_live(self, interaction: discord.Interaction | None, match_id: int) -> None:
         m = await self.db.get_match(match_id)
-        if random.random() < 0.5:
-            await self.db.swap_sides(match_id)
         await self.db.update_match(
             match_id, status="live", map=m["map"] or self.random_map(GAMES[m["game"]]), live_at=int(time.time())
         )
@@ -885,7 +923,7 @@ class Lobby(commands.Cog):
     async def cancel_match(self, interaction: discord.Interaction, match_id: int) -> None:
         async with self.locks[("match", match_id)]:
             m = await self.db.get_match(match_id)
-            if not m or m["status"] not in ("setup", "drafting", "live"):
+            if not m or m["status"] not in ("setup", "drafting", "voting", "live"):
                 await reply(interaction, "That match can't be cancelled.")
                 return
             self.drafts.pop(match_id, None)
@@ -956,7 +994,7 @@ class Lobby(commands.Cog):
     ) -> None:
         async with self.locks[("match", match_id)]:
             m = await self.db.get_match(match_id)
-            if not m or m["status"] not in ("setup", "live"):
+            if not m or m["status"] not in ("setup", "voting", "live"):
                 await reply(interaction, "Subs can only be made before teams are picked or during a live match.")
                 return
             teams = {p["user_id"]: p["team"] for p in await self.db.match_players(match_id)}

@@ -88,7 +88,7 @@ CREATE TABLE IF NOT EXISTS fake_players (
 CREATE INDEX IF NOT EXISTS idx_match_players_user ON match_players(user_id);
 """
 
-ACTIVE_STATUSES = ("setup", "drafting", "live")
+ACTIVE_STATUSES = ("setup", "drafting", "voting", "live")
 
 
 @dataclass

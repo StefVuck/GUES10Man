@@ -141,7 +141,6 @@ class Sandbox(commands.Cog):
         lobby = self.lobby
         match_id = await self.db.create_match(guild_id, GAME, roster)
         await lobby.post_match(channel, match_id)
-        await self.vote(match_id, roster, step, rng)
         await asyncio.sleep(step)
         async with lobby.locks[("match", match_id)]:
             await lobby.start_draft(None, match_id, "top")
@@ -153,6 +152,7 @@ class Sandbox(commands.Cog):
             choice = ranked[0] if rng.random() < 0.7 else rng.choice(ranked[:3])
             async with lobby.locks[("match", match_id)]:
                 await lobby.pick(None, match_id, choice)
+        await self.vote(match_id, roster, step, rng)
         return match_id
 
     async def auto_game(
@@ -161,10 +161,10 @@ class Sandbox(commands.Cog):
         lobby = self.lobby
         match_id = await self.db.create_match(guild_id, GAME, roster)
         await lobby.post_match(channel, match_id)
-        await self.vote(match_id, roster, step, rng)
         await asyncio.sleep(step)
         async with lobby.locks[("match", match_id)]:
             await lobby.start_auto(None, match_id)
+        await self.vote(match_id, roster, step, rng)
         return match_id
 
     @test.command(name="run", description="Play a drafted game and three auto-balanced games with fake players")

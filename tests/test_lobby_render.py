@@ -10,7 +10,9 @@ from gues10man.db import Database
 async def lobby(tmp_path):
     db = Database(str(tmp_path / "lobby.db"))
     await db.connect()
-    bot = SimpleNamespace(db=db, get_guild=lambda _id: None, henrik=SimpleNamespace(enabled=True))
+    bot = SimpleNamespace(
+        db=db, get_guild=lambda _id: None, get_channel=lambda _id: None, henrik=SimpleNamespace(enabled=True)
+    )
     yield Lobby(bot)
     await db.close()
 
@@ -178,13 +180,49 @@ async def test_map_vote(lobby):
     assert {tie.winner(random.Random(s)) for s in range(20)} == {"Ascent", "Lotus"}
 
     match_id = await lobby.db.create_match(1, "valorant", list(range(10)))
-    lobby.votes[match_id] = MapVote(["Ascent", "Bind", "Lotus"], 0, {0: "Lotus"})
+    _, view = await lobby.render_match(match_id)
+    assert not any(getattr(c, "custom_id", "").startswith("v:") for c in view.children)
+
+    await lobby.db.set_teams(match_id, list(range(5)), list(range(5, 10)), (0, 5))
+    for t in list(lobby._tasks):
+        t.cancel()
+    await lobby.teams_ready(None, match_id)
+    for t in list(lobby._tasks):
+        t.cancel()
+    assert (await lobby.db.get_match(match_id))["status"] == "voting"
+    first_options = list(lobby.votes[match_id].options)
+    lobby.votes[match_id].votes = {0: first_options[2]}
     embed, view = await lobby.render_match(match_id)
     labels = [c.item.label for c in view.children if hasattr(c, "item") and c.item.custom_id.startswith("v:")]
-    assert labels == ["Ascent (0)", "Bind (0)", "Lotus (1)"]
-    assert "Map vote" in embed.fields[0].name
+    assert labels == [f"{first_options[0]} (0)", f"{first_options[1]} (0)", f"{first_options[2]} (1)"]
+    assert "Map vote" in embed.description
 
+    replies = []
+
+    async def send_message(content, **kwargs):
+        replies.append(content)
+
+    def click(user_id):
+        response = SimpleNamespace(is_done=lambda: bool(replies), send_message=send_message, defer=None)
+        return SimpleNamespace(user=SimpleNamespace(id=user_id), response=response, type=None, message=None)
+
+    await lobby.reroll_maps(click(3), match_id)
+    assert replies == ["Only the captains can reroll the maps."]
+    replies.clear()
+
+    async def defer():
+        replies.append("deferred")
+
+    captain = click(0)
+    captain.response.defer = defer
+    await lobby.reroll_maps(captain, match_id)
+    vote = lobby.votes[match_id]
+    assert vote.votes == {} and not set(vote.options) & set(first_options)
+    replies.clear()
+    await lobby.reroll_maps(click(0), match_id)
+    assert replies == ["You've already used your reroll."]
+
+    vote.votes = {1: vote.options[1], 2: vote.options[1]}
     await lobby.finish_vote(match_id)
-    assert (await lobby.db.get_match(match_id))["map"] == "Lotus"
-    _, view = await lobby.render_match(match_id)
-    assert any(getattr(c, "custom_id", "").startswith("m:auto") for c in view.children)
+    m = await lobby.db.get_match(match_id)
+    assert m["status"] == "live" and m["map"] == vote.options[1]
