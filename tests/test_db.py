@@ -63,3 +63,8 @@ async def test_leaderboard_orders(db):
     await do_refit(db)
     rows = await db.leaderboard("valorant", "elo", min_games=0)
     assert [r.user_id for r in rows] == [1, 2]
+
+
+async def test_users_by_riot_id(db):
+    await db.set_riot_id(7, "User#1234", "eu")
+    assert await db.users_by_riot_id(["user#1234", "Nobody#000"]) == {"user#1234": 7}

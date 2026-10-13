@@ -7,7 +7,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from ..games import DEFAULT_RATING, GAMES
+from ..games import DEFAULT_RATING, GAMES, Game
 from ..ranks import REGIONS, RankLookupError
 from ..util import GAME_CHOICES, mention, fmt_delta, fmt_rating, is_staff, reply
 
@@ -20,6 +20,37 @@ PAGE_SIZE = 15
 async def rank_autocomplete(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
     game = GAMES.get(getattr(interaction.namespace, "game", None) or "valorant", GAMES["valorant"])
     return [app_commands.Choice(name=r, value=r) for r in game.ranks if current.lower() in r.lower()][:25]
+
+
+def history_entry(game: Game, h) -> str:
+    won = h["team"] == h["winner"]
+    head = [f"**#{h['id']}**", "**Win**" if won else "Loss"]
+    if h["score_a"] is not None:
+        own, other = (h["score_a"], h["score_b"]) if h["team"] == "A" else (h["score_b"], h["score_a"])
+        head.append(f"{own}-{other}")
+    if h["map"]:
+        head.append(h["map"])
+
+    detail = [game.side(h["team"]) + (" (C)" if h["is_captain"] else "")]
+    if h["rating_before"] is not None and h["rating_delta"] is not None:
+        before, delta = round(h["rating_before"]), round(h["rating_delta"])
+        detail.append(f"{before} → {before + delta} ({fmt_delta(delta)})")
+    if h["score"] is not None:
+        detail.append(f"{h['score']:g} {game.score_label}")
+    detail.append(discord.utils.format_dt(datetime.fromtimestamp(h["finished_at"], tz=timezone.utc), "R"))
+    return " · ".join(head) + "\n" + " · ".join(detail)
+
+
+def history_embed(name: str, game: Game, rows) -> discord.Embed:
+    wins = sum(h["team"] == h["winner"] for h in rows)
+    net = sum(h["rating_delta"] or 0 for h in rows)
+    embed = discord.Embed(
+        title=f"{name}'s recent {game.name} matches",
+        description=f"Last {len(rows)}: **{wins}W {len(rows) - wins}L** · Elo {fmt_delta(net)}\n\n"
+        + "\n\n".join(history_entry(game, h) for h in rows),
+        colour=discord.Colour.green() if net >= 0 else discord.Colour.red(),
+    )
+    return embed
 
 
 class LeaderboardView(discord.ui.View):
@@ -165,24 +196,12 @@ class Players(commands.Cog):
         self, interaction: discord.Interaction, member: discord.Member | None = None, game: str = "valorant"
     ) -> None:
         target = member or interaction.user
-        rows = await self.db.history(target.id, game, limit=15)
+        g = GAMES[game]
+        rows = await self.db.history(target.id, game, limit=10)
         if not rows:
-            await reply(interaction, f"No completed {GAMES[game].name} matches for {target.mention} yet.")
+            await reply(interaction, f"No completed {g.name} matches for {target.mention} yet.")
             return
-        lines = []
-        for h in rows:
-            won = h["team"] == h["winner"]
-            score = ""
-            if h["score_a"] is not None:
-                own, other = (h["score_a"], h["score_b"]) if h["team"] == "A" else (h["score_b"], h["score_a"])
-                score = f" {own}-{other}"
-            when = datetime.fromtimestamp(h["finished_at"], tz=timezone.utc)
-            lines.append(
-                f"`#{h['id']:<4}` {'W' if won else 'L'}{score} {h['map'] or ''} · {fmt_delta(h['rating_delta'] or 0)}"
-                f"{' (C)' if h['is_captain'] else ''} · {discord.utils.format_dt(when, 'R')}"
-            )
-        embed = discord.Embed(title=f"{target.display_name}'s recent matches", description="\n".join(lines))
-        await interaction.response.send_message(embed=embed)
+        await interaction.response.send_message(embed=history_embed(target.display_name, g, rows))
 
     @app_commands.command(name="leaderboard", description="10 man leaderboard")
     @app_commands.choices(

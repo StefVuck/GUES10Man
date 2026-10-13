@@ -6,6 +6,7 @@ from urllib.parse import quote
 
 import aiohttp
 
+from .customs import CustomGame, parse_matches
 from .games import valorant_tier_to_rank
 
 RIOT_ID = re.compile(r"^(?P<name>[^#]{3,16})#(?P<tag>[A-Za-z0-9]{3,5})$")
@@ -78,18 +79,26 @@ class HenrikClient:
     def enabled(self) -> bool:
         return bool(self.api_key)
 
-    async def _get(self, path: str) -> dict:
+    async def _get(self, path: str, params: dict | None = None) -> dict:
+        if not self.enabled:
+            raise RankLookupError("HENRIK_API_KEY isn't set, so Valorant lookups are switched off.")
         if not self._session:
             self._session = aiohttp.ClientSession(
-                headers={"Authorization": self.api_key or ""}, timeout=aiohttp.ClientTimeout(total=10)
+                headers={"Authorization": self.api_key or ""}, timeout=aiohttp.ClientTimeout(total=15)
             )
-        async with self._session.get(f"{self.BASE}{path}") as resp:
+        async with self._session.get(f"{self.BASE}{path}", params=params) as resp:
             if resp.status == 404:
                 raise RankLookupError("Couldn't find that Riot ID. Check the spelling and the region.")
             if resp.status == 429:
-                raise RankLookupError("The rank API is rate limiting us, try again in a minute.")
+                raise RankLookupError("The Valorant API is rate limiting us, try again in a minute.")
             if resp.status >= 400:
-                raise RankLookupError(f"The rank API returned an error ({resp.status}).")
+                detail = ""
+                try:
+                    errors = (await resp.json()).get("errors") or []
+                    detail = "; ".join(str(e.get("message") or e) for e in errors)
+                except (aiohttp.ContentTypeError, ValueError, AttributeError):
+                    pass
+                raise RankLookupError(f"The Valorant API returned an error ({resp.status}){': ' + detail if detail else ''}.")
             return await resp.json()
 
     async def fetch_rank(self, riot_id: str, region: str) -> ValorantRank:
@@ -98,6 +107,27 @@ class HenrikClient:
         name, tag = parse_riot_id(riot_id)
         payload = await self._get(f"/v3/mmr/{region}/pc/{quote(name)}/{quote(tag)}")
         return parse_mmr_response(f"{name}#{tag}", payload)
+
+    async def fetch_custom_matches(self, riot_id: str, region: str, size: int = 5) -> tuple[list[CustomGame], dict, str]:
+        """Recent custom games for a Riot ID. Returns the parsed games, the raw payload
+        and the endpoint that answered, so a schema mismatch is easy to diagnose."""
+        if not self.enabled:
+            raise RankLookupError("HENRIK_API_KEY isn't set, so Valorant lookups are switched off.")
+        name, tag = parse_riot_id(riot_id)
+        n, t = quote(name), quote(tag)
+        attempts = [
+            (f"/v4/matches/{region}/pc/{n}/{t}", {"mode": "custom", "size": size}),
+            (f"/v3/matches/{region}/{n}/{t}", {"mode": "custom", "size": size}),
+        ]
+        errors = []
+        for path, params in attempts:
+            try:
+                payload = await self._get(path, params)
+            except RankLookupError as e:
+                errors.append(f"{path.split('/')[1]}: {e}")
+                continue
+            return parse_matches(payload), payload, path.split("/")[1]
+        raise RankLookupError(" / ".join(errors))
 
     async def close(self) -> None:
         if self._session:

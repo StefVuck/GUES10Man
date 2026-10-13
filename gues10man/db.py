@@ -164,6 +164,16 @@ class Database:
         await self.db.execute("UPDATE players SET riot_id = ?, region = ? WHERE user_id = ?", (riot_id, region, user_id))
         await self.db.commit()
 
+    async def users_by_riot_id(self, riot_ids: list[str]) -> dict[str, int]:
+        """Maps lowercased Riot IDs to the Discord users who linked them."""
+        if not riot_ids:
+            return {}
+        wanted = [r.lower() for r in riot_ids]
+        async with self.db.execute(
+            f"SELECT user_id, riot_id FROM players WHERE LOWER(riot_id) IN ({','.join('?' * len(wanted))})", wanted
+        ) as cur:
+            return {r["riot_id"].lower(): r["user_id"] for r in await cur.fetchall()}
+
     async def get_player(self, user_id: int) -> aiosqlite.Row | None:
         async with self.db.execute("SELECT * FROM players WHERE user_id = ?", (user_id,)) as cur:
             return await cur.fetchone()
@@ -440,7 +450,7 @@ class Database:
     async def history(self, user_id: int, game: str, limit: int = 10) -> list[aiosqlite.Row]:
         async with self.db.execute(
             """SELECT m.id, m.map, m.winner, m.score_a, m.score_b, m.finished_at, mp.team, mp.rating_delta,
-                      mp.rating_before, mp.is_captain
+                      mp.rating_before, mp.is_captain, mp.score
                FROM match_players mp JOIN matches m ON m.id = mp.match_id
                WHERE mp.user_id = ? AND m.game = ? AND m.status = 'complete'
                ORDER BY m.finished_at DESC LIMIT ?""",

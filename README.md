@@ -61,6 +61,16 @@ Staff can run `/test run` in any text channel to watch a full session play out w
 
 Everything happens under a separate Sandbox game, so real ratings are never touched. `/test run include_me:False` uses fake players only, `step_seconds` controls how fast it plays, and `/test reset` wipes the sandbox.
 
+### Pulling custom games from the API
+
+To check that custom games can be read from someone's Valorant match history, run this from the terminal once `HENRIK_API_KEY` is in `.env`:
+
+```bash
+python -m gues10man.tools.customs "User#1234" --region eu
+```
+
+It lists recent custom games with map, score, winner and each player's agent, ACS and K/D/A. In Discord, `/test customs riot_id:User#1234` shows the same thing to you privately, and mentions any player who has linked that Riot ID with `/link`. If nothing comes back or the fields look wrong, run the tool with `--shape`. That prints the layout of the API's response without any names or numbers, so it is safe to share when adjusting the parser in `gues10man/customs.py`.
+
 ## Development
 
 ```bash

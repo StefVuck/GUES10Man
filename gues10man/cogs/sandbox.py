@@ -11,6 +11,8 @@ from discord.ext import commands
 
 from ..elo import expected
 from ..games import GAMES
+from ..customs import CustomGame
+from ..ranks import REGIONS, RankLookupError
 from ..util import FAKE_PLAYERS, missing_channel_permissions, reply, staff_only
 
 if TYPE_CHECKING:
@@ -38,6 +40,27 @@ TESTER_DEFAULT_RANK = "Gold 3"
 def hidden_skill(user_id: int, anchor: float) -> float:
     """Each fake has a fixed true skill near their seed, so repeated runs tell a consistent story."""
     return anchor + random.Random(user_id).gauss(0, 150)
+
+
+def custom_game_embed(game: CustomGame, linked: dict[str, int]) -> discord.Embed:
+    score = " - ".join(f"{t} {game.rounds_won.get(t, '?')}" for t in game.team_names)
+    embed = discord.Embed(
+        title=f"{game.map or 'Unknown map'} · {score}",
+        description=f"Winner: **{game.winner or 'unknown'}** · {game.rounds} rounds"
+        + (f" · {discord.utils.format_dt(game.started_at, 'R')}" if game.started_at else ""),
+        colour=discord.Colour(0xFF4655),
+    )
+    for team in game.team_names:
+        lines = []
+        for p in game.team(team):
+            acs = game.acs(p)
+            who = p.riot_id + (f" (<@{linked[p.riot_id.lower()]}>)" if p.riot_id.lower() in linked else "")
+            stats = f"{acs:.0f} ACS · {p.kills}/{p.deaths}/{p.assists}" if acs is not None else "no stats"
+            lines.append(f"{who} · {p.agent or '?'} · {stats}")
+        embed.add_field(name=team, value="\n".join(lines)[:1024] or "-", inline=False)
+    if game.match_id:
+        embed.set_footer(text=f"Match {game.match_id}")
+    return embed
 
 
 class Sandbox(commands.Cog):
@@ -211,6 +234,40 @@ class Sandbox(commands.Cog):
                 self.lobby.drafts.pop(m["id"], None)
                 await self.db.update_match(m["id"], status="cancelled")
                 await self.lobby.refresh_match_message(m["id"])
+
+    @test.command(name="customs", description="Fetch recent Valorant custom games for a Riot ID to check the API works")
+    @app_commands.describe(riot_id="Name#Tag, for example User#1234", count="How many recent custom games to show")
+    @app_commands.choices(region=[app_commands.Choice(name=r.upper(), value=r) for r in REGIONS])
+    @staff_only()
+    async def customs(
+        self,
+        interaction: discord.Interaction,
+        riot_id: str,
+        region: str | None = None,
+        count: app_commands.Range[int, 1, 5] = 3,
+    ) -> None:
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        try:
+            games, _, version = await self.bot.henrik.fetch_custom_matches(
+                riot_id, region or self.bot.settings.valorant_region, count
+            )
+        except RankLookupError as e:
+            await reply(interaction, f"Couldn't fetch custom games: {e}")
+            return
+        if not games:
+            await reply(
+                interaction,
+                f"The {version} endpoint answered but returned no custom games for {riot_id}. "
+                "Play a custom first, or run `python -m gues10man.tools.customs` with `--shape` to inspect the response.",
+            )
+            return
+        linked = await self.db.users_by_riot_id([p.riot_id for g in games for p in g.players])
+        embeds = [custom_game_embed(g, linked) for g in games[:count]]
+        await interaction.followup.send(
+            f"{len(games)} custom game(s) from the {version} endpoint. Players marked with a mention have linked their Riot ID.",
+            embeds=embeds,
+            ephemeral=True,
+        )
 
     @test.command(name="reset", description="Delete all sandbox matches and ratings")
     @staff_only()

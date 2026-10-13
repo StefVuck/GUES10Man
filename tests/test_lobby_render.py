@@ -143,3 +143,14 @@ def test_not_live_explains_status():
     assert "already finished" in not_live(7, {"status": "complete"})
     assert "cancelled" in not_live(7, {"status": "cancelled"})
     assert "doesn't exist" in not_live(7, None)
+
+
+def test_history_entry_layout():
+    from gues10man.cogs.players import history_embed
+    from gues10man.games import GAMES
+
+    rows = [dict(id=12, team="A", winner="A", score_a=13, score_b=6, map="Ascent", is_captain=1,
+                 rating_before=1250.4, rating_delta=35.2, score=245.0, finished_at=1760380000)]
+    text = history_embed("Tester", GAMES["valorant"], rows).description
+    assert "**1W 0L**" in text and "**#12** · **Win** · 13-6 · Ascent" in text
+    assert "Attackers (C) · 1250 → 1285 (+35) · 245 ACS" in text
