@@ -26,23 +26,6 @@ class Admin(commands.Cog):
         self.bot = bot
         self.db = bot.db
 
-    @setup_group.command(name="voice", description="Set the lobby and team voice channels players are moved between")
-    async def setup_voice(
-        self,
-        interaction: discord.Interaction,
-        lobby: discord.VoiceChannel,
-        team_a: discord.VoiceChannel,
-        team_b: discord.VoiceChannel,
-    ) -> None:
-        assert interaction.guild is not None
-        await self.db.update_config(
-            interaction.guild.id, lobby_vc_id=lobby.id, team_a_vc_id=team_a.id, team_b_vc_id=team_b.id
-        )
-        me = interaction.guild.me
-        missing = [c.mention for c in (lobby, team_a, team_b) if not c.permissions_for(me).move_members]
-        note = f"\n⚠️ I don't have **Move Members** in {', '.join(missing)}." if missing else ""
-        await reply(interaction, f"Players will be moved {lobby.mention} → {team_a.mention} / {team_b.mention} and back.{note}")
-
     @setup_group.command(name="staffrole", description="Role allowed to run queues, cancel matches and fix results")
     async def setup_staffrole(self, interaction: discord.Interaction, role: discord.Role | None = None) -> None:
         assert interaction.guild is not None

@@ -1,6 +1,6 @@
 # GUES10Man
 
-A Discord bot for running 10 man custom games on the uni esports server. Players join a queue with a button, and when it fills the bot opens a match. The ten players then choose between an automatically balanced split and a captains draft. Once teams are set, the bot picks a map and moves everyone into their team voice channels. After the game, a captain or staff member reports the result, Elo is updated and everyone is moved back to the lobby.
+A Discord bot for running 10 man custom games on the uni esports server. Players join a queue with a button, and when it fills the bot opens a match. The ten players then choose between an automatically balanced split and a captains draft. Once teams are set, the bot picks a map and pings everyone with the team they're on. After the game, a captain or staff member reports the result and Elo is updated. Several matches can run at once: each match has its own number, and the queue keeps filling for the next lobby while earlier games are still being played.
 
 Valorant is the main game. Counter-Strike 2, League of Legends and Overwatch 2 are also set up, and new games can be added in `gues10man/games.py`. Ratings, records and leaderboards are kept separately for each game.
 
@@ -14,11 +14,10 @@ cp .env.example .env   # then fill in DISCORD_TOKEN and HENRIK_API_KEY
 python -m gues10man
 ```
 
-When you create the application in the [Discord developer portal](https://discord.com/developers/applications), invite the bot with the `bot` and `applications.commands` scopes. It needs Send Messages, Embed Links and Move Members. It doesn't use any privileged intents. While you're developing, set `GUILD_ID` to the server's ID so that slash command changes appear straight away rather than after Discord's global sync delay.
+When you create the application in the [Discord developer portal](https://discord.com/developers/applications), invite the bot with the `bot` and `applications.commands` scopes. It needs Send Messages and Embed Links. It doesn't use any privileged intents. While you're developing, set `GUILD_ID` to the server's ID so that slash command changes appear straight away rather than after Discord's global sync delay.
 
 Once the bot is in the server, a member with Manage Server should run:
 
-- `/setup voice lobby:<vc> team_a:<vc> team_b:<vc>` to choose the channels players are moved between
 - `/setup staffrole role:<role>` so committee members can run queues without needing Manage Server
 - `/queue open game:Valorant` in the channel where the queue should live
 
@@ -32,7 +31,7 @@ The match message lets any of the ten choose how teams are made:
 
 **Captains draft** uses either the two highest rated players or two random players as captains. The lower rated captain picks first, and picks follow a snake order (A B B A A B B A). Only the captain whose turn it is, or staff, can use the picker. Drafts are held in memory, so a draft cut off by a restart goes back to the mode choice.
 
-Once teams are locked in, the bot picks a random map from the game's pool, shows the predicted win chance and moves players who are already in voice into the team channels. Captains can reroll the map. Either captain or staff reports the winner with a button, optionally entering the round score, and Elo changes are posted on the match message.
+Once teams are locked in, the bot picks a random map from the game's pool, shows the predicted win chance and posts a reply pinging each team by match number, so players in overlapping games know which lobby and side they're on. Captains can reroll the map. Either captain or staff reports the winner with a button, optionally entering the round score, and Elo changes are posted on the match message.
 
 Staff can cancel a match at any stage. They can swap a player out with `/match sub`, and `/match undo` reverses a mistaken result, putting the match back to live so it can be reported again.
 

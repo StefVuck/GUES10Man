@@ -603,8 +603,28 @@ class Lobby(commands.Cog):
         m = await self.db.get_match(match_id)
         await self.db.update_match(match_id, status="live", map=self.random_map(GAMES[m["game"]]))
         await self.respond_with_match(interaction, match_id)
-        if interaction.guild:
-            await self.move_to_team_channels(interaction.guild, match_id)
+        await self.announce_teams(match_id)
+
+    async def announce_teams(self, match_id: int) -> None:
+        m = await self.db.get_match(match_id)
+        channel = self.bot.get_channel(m["channel_id"])
+        if not isinstance(channel, discord.abc.Messageable):
+            return
+        players = await self.db.match_players(match_id)
+        lines = [f"**Match #{match_id} is live**" + (f" on **{m['map']}**" if m["map"] else "")]
+        for key in ("A", "B"):
+            team = [p for p in players if p["team"] == key]
+            team.sort(key=lambda p: not p["is_captain"])
+            mentions = " ".join(("👑 " if p["is_captain"] else "") + f"<@{p['user_id']}>" for p in team)
+            lines.append(f"**{TEAM_NAMES[key]}:** {mentions}")
+        try:
+            await channel.send(
+                "\n".join(lines),
+                reference=channel.get_partial_message(m["message_id"]) if m["message_id"] else None,
+                allowed_mentions=discord.AllowedMentions(users=True, replied_user=False),
+            )
+        except discord.HTTPException:
+            log.warning("Couldn't announce teams for match %s", match_id)
 
     async def finish_match(
         self, interaction: discord.Interaction, match_id: int, winner: str, score: tuple[int, int] | None
@@ -625,8 +645,6 @@ class Lobby(commands.Cog):
 
         await self.refresh_match_message(match_id)
         await reply(interaction, f"Result recorded for match #{match_id}.", ephemeral=True)
-        if interaction.guild:
-            await self.move_to_lobby(interaction.guild, match_id)
 
     async def save_scoreboard(self, interaction: discord.Interaction, match_id: int, scores: dict[int, float]) -> None:
         await interaction.response.defer(ephemeral=True, thinking=True)
@@ -646,41 +664,9 @@ class Lobby(commands.Cog):
             if not m or m["status"] not in ("setup", "drafting", "live"):
                 await reply(interaction, "That match can't be cancelled.")
                 return
-            was_live = m["status"] == "live"
             self.drafts.pop(match_id, None)
             await self.db.update_match(match_id, status="cancelled")
         await self.respond_with_match(interaction, match_id)
-        if was_live and interaction.guild:
-            await self.move_to_lobby(interaction.guild, match_id)
-
-    # voice
-
-    async def move_to_team_channels(self, guild: discord.Guild, match_id: int) -> None:
-        config = await self.db.get_config(guild.id)
-        channels = {"A": guild.get_channel(config.team_a_vc_id or 0), "B": guild.get_channel(config.team_b_vc_id or 0)}
-        if not all(isinstance(c, discord.VoiceChannel) for c in channels.values()):
-            return
-        for p in await self.db.match_players(match_id):
-            member = guild.get_member(p["user_id"])
-            if member and member.voice and member.voice.channel:
-                try:
-                    await member.move_to(channels[p["team"]], reason=f"10 man match #{match_id}")
-                except discord.HTTPException:
-                    log.warning("Couldn't move %s", member)
-
-    async def move_to_lobby(self, guild: discord.Guild, match_id: int) -> None:
-        config = await self.db.get_config(guild.id)
-        lobby_vc = guild.get_channel(config.lobby_vc_id or 0)
-        if not isinstance(lobby_vc, discord.VoiceChannel):
-            return
-        team_ids = {config.team_a_vc_id, config.team_b_vc_id}
-        for p in await self.db.match_players(match_id):
-            member = guild.get_member(p["user_id"])
-            if member and member.voice and member.voice.channel and member.voice.channel.id in team_ids:
-                try:
-                    await member.move_to(lobby_vc, reason=f"10 man match #{match_id} finished")
-                except discord.HTTPException:
-                    log.warning("Couldn't move %s", member)
 
     # slash commands
 
@@ -732,7 +718,8 @@ class Lobby(commands.Cog):
             if not m or m["status"] not in ("setup", "live"):
                 await reply(interaction, "Subs can only be made before teams are picked or during a live match.")
                 return
-            ids = {p["user_id"] for p in await self.db.match_players(match_id)}
+            teams = {p["user_id"]: p["team"] for p in await self.db.match_players(match_id)}
+            ids = set(teams)
             if out.id not in ids:
                 await reply(interaction, f"{out.mention} isn't in match #{match_id}.")
                 return
@@ -746,7 +733,8 @@ class Lobby(commands.Cog):
             await self.db.db.commit()
             await self.db.leave_queue(m["guild_id"], m["game"], sub.id)
         await self.refresh_match_message(match_id)
-        await reply(interaction, f"{sub.mention} is in for {out.mention} in match #{match_id}.", ephemeral=False)
+        team = f" on **{TEAM_NAMES[teams[out.id]]}**" if teams[out.id] else ""
+        await reply(interaction, f"{sub.mention} is in for {out.mention} in match #{match_id}{team}.", ephemeral=False)
 
 
 async def setup(bot: TenManBot) -> None:

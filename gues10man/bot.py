@@ -23,7 +23,6 @@ EXTENSIONS = ("gues10man.cogs.lobby", "gues10man.cogs.players", "gues10man.cogs.
 class TenManBot(commands.Bot):
     def __init__(self, settings: Settings):
         intents = discord.Intents.default()
-        intents.voice_states = True
         super().__init__(command_prefix=commands.when_mentioned, intents=intents)
         self.settings = settings
         self.db = Database(settings.database_path)

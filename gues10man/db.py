@@ -31,10 +31,7 @@ CREATE TABLE IF NOT EXISTS ratings (
 
 CREATE TABLE IF NOT EXISTS guild_config (
     guild_id INTEGER PRIMARY KEY,
-    staff_role_id INTEGER,
-    lobby_vc_id INTEGER,
-    team_a_vc_id INTEGER,
-    team_b_vc_id INTEGER
+    staff_role_id INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS queues (
@@ -108,9 +105,6 @@ class Rating:
 class GuildConfig:
     guild_id: int
     staff_role_id: int | None = None
-    lobby_vc_id: int | None = None
-    team_a_vc_id: int | None = None
-    team_b_vc_id: int | None = None
 
 
 class Database:
