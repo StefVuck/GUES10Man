@@ -14,6 +14,7 @@ class Game:
     ranks: tuple[str, ...] = ()
     rank_base: float = 600.0
     rank_step: float = 60.0
+    score_label: str = "score"
 
     @property
     def lobby_size(self) -> int:
@@ -60,6 +61,7 @@ GAMES: dict[str, Game] = {
                 "Icebox", "Lotus", "Pearl", "Split", "Sunset",
             ),
             ranks=VALORANT_RANKS,
+            score_label="ACS",
         ),
         Game(
             key="cs2",

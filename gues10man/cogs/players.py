@@ -74,6 +74,7 @@ class Players(commands.Cog):
             return
         seed = game.rating_for_rank(rank.seed_rank) if rank.seed_rank else DEFAULT_RATING
         await self.db.seed_rating(interaction.user.id, "valorant", seed, rank.seed_rank)
+        await self.bot.refit("valorant")
         await interaction.followup.send(
             summary + f"\nYour starting Elo is **{fmt_rating(seed)}** (seeded from {rank.seed_rank or 'the default'}).",
             ephemeral=True,
@@ -99,8 +100,10 @@ class Players(commands.Cog):
         if existing and existing.games > 0 and not staff:
             await reply(interaction, "You've already played rated games, so ask staff if your Elo needs adjusting.")
             return
+        await interaction.response.defer(ephemeral=True)
         await self.db.seed_rating(target.id, game, rating, g.ranks[g.rank_index(rank)])
-        await reply(interaction, f"{target.mention}'s {g.name} Elo is now **{fmt_rating(rating)}** ({rank}).")
+        await self.bot.refit(game)
+        await reply(interaction, f"{target.mention}'s {g.name} Elo is now seeded from **{rank}** ({fmt_rating(rating)}).")
 
     @app_commands.command(name="profile", description="Show someone's 10 man record and Elo")
     @app_commands.choices(game=GAME_CHOICES)

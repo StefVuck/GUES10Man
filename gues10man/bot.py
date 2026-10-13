@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import logging
+from collections import defaultdict
 
 import discord
 from discord import app_commands
@@ -8,7 +10,9 @@ from discord.ext import commands
 
 from .config import Settings
 from .db import Database
+from .games import GAMES
 from .ranks import HenrikClient
+from .rating import refit
 from .util import reply
 
 log = logging.getLogger("gues10man")
@@ -25,6 +29,7 @@ class TenManBot(commands.Bot):
         self.db = Database(settings.database_path)
         self.henrik = HenrikClient(settings.henrik_api_key)
         self.tree.on_error = self.on_app_command_error
+        self.fit_locks: defaultdict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
 
     async def setup_hook(self) -> None:
         await self.db.connect()
@@ -36,6 +41,17 @@ class TenManBot(commands.Bot):
             await self.tree.sync(guild=guild)
         else:
             await self.tree.sync()
+
+    async def refit(self, game: str, credit_match: int | None = None) -> None:
+        """Refits every rating for a game from its full match history. When
+        credit_match is given, the movement is recorded as that match's Elo change."""
+        async with self.fit_locks[game]:
+            matches, anchors = await self.db.fit_inputs(game)
+            before = await self.db.current_ratings(game)
+            after = await asyncio.to_thread(refit, matches, anchors, GAMES[game].team_size)
+            await self.db.write_ratings(game, after)
+            if credit_match is not None:
+                await self.db.add_match_deltas(credit_match, before, after)
 
     async def close(self) -> None:
         await self.henrik.close()

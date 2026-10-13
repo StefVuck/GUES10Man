@@ -12,7 +12,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from ..balance import auto_balance, choose_captains, snake_order
-from ..elo import PlayerRating, compute_deltas, win_probability
+from ..elo import PlayerRating, win_probability
 from ..games import DEFAULT_RATING, GAMES, Game
 from ..util import GAME_CHOICES, TEAM_NAMES, fmt_delta, fmt_rating, is_staff, reply, staff_only
 
@@ -80,6 +80,8 @@ MATCH_BUTTONS = {
     "wina": (f"{TEAM_NAMES['A']} won", discord.ButtonStyle.success),
     "winb": (f"{TEAM_NAMES['B']} won", discord.ButtonStyle.success),
     "map": ("Reroll map", discord.ButtonStyle.secondary),
+    "sca": (f"{TEAM_NAMES['A']} scoreboard", discord.ButtonStyle.secondary),
+    "scb": (f"{TEAM_NAMES['B']} scoreboard", discord.ButtonStyle.secondary),
     "cancel": ("Cancel match", discord.ButtonStyle.danger),
 }
 
@@ -141,6 +143,31 @@ class ResultModal(discord.ui.Modal):
                 await reply(interaction, "Scores need to be numbers, or leave both blank.")
                 return
         await self.cog.finish_match(interaction, self.match_id, self.winner, score)
+
+
+class ScoreboardModal(discord.ui.Modal):
+    """One number per player on a team. The fit ranks each team's scoreboard,
+    so only the order matters, not the scale."""
+
+    def __init__(self, cog: Lobby, match_id: int, team: str, players: list[tuple[int, str, float | None]], label: str):
+        super().__init__(title=f"Match #{match_id}: {TEAM_NAMES[team]} {label}")
+        self.cog = cog
+        self.match_id = match_id
+        self.inputs: dict[int, discord.ui.TextInput] = {}
+        for uid, name, current in players:
+            field = discord.ui.TextInput(
+                label=name[:45], required=False, max_length=6, default=None if current is None else f"{current:g}"
+            )
+            self.inputs[uid] = field
+            self.add_item(field)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        try:
+            scores = {uid: float(f.value) for uid, f in self.inputs.items() if f.value.strip()}
+        except ValueError:
+            await reply(interaction, "Scores need to be numbers.")
+            return
+        await self.cog.save_scoreboard(interaction, self.match_id, scores)
 
 
 def queue_view(game: str) -> discord.ui.View:
@@ -354,6 +381,8 @@ class Lobby(commands.Cog):
                 text = "👑 " + text
             if delta and p["rating_delta"] is not None:
                 text += f" **{fmt_delta(p['rating_delta'])}**"
+            if delta and p["score"] is not None:
+                text += f" · {p['score']:g} {game.score_label}"
             return text
 
         embed = discord.Embed(title=f"{game.name} match #{match_id}", colour=COLOUR)
@@ -410,7 +439,8 @@ class Lobby(commands.Cog):
             score = f" {m['score_a']}-{m['score_b']}" if m["score_a"] is not None else ""
             embed.description = f"**{TEAM_NAMES[m['winner']]} won{score}.**"
             embed.colour = discord.Colour.green()
-            return embed, None
+            embed.set_footer(text=f"Captains can add each team's {game.score_label} to refine ratings.")
+            return embed, match_view(match_id, ["sca", "scb"])
 
         prob = win_probability([ratings[p["user_id"]] for p in team_a], [ratings[p["user_id"]] for p in team_b])
         embed.description = f"Predicted: {TEAM_NAMES['A']} {prob:.0%} / {TEAM_NAMES['B']} {1 - prob:.0%}"
@@ -468,6 +498,22 @@ class Lobby(commands.Cog):
                 await reply(interaction, "This match isn't in progress.")
                 return
             await interaction.response.send_modal(ResultModal(self, match_id, "A" if action == "wina" else "B"))
+            return
+
+        if action in ("sca", "scb"):
+            if not await self.can_manage_match(interaction, match_id, captains_only=True):
+                await reply(interaction, "Only staff or a captain can enter the scoreboard.")
+                return
+            m = await self.db.get_match(match_id)
+            team = "A" if action == "sca" else "B"
+            assert interaction.guild is not None
+            players = [
+                (p["user_id"], await self.name(interaction.guild, p["user_id"]), p["score"])
+                for p in await self.db.match_players(match_id)
+                if p["team"] == team
+            ]
+            label = GAMES[m["game"]].score_label
+            await interaction.response.send_modal(ScoreboardModal(self, match_id, team, players, label))
             return
 
         if action == "cancel":
@@ -571,19 +617,28 @@ class Lobby(commands.Cog):
             if score and ((score[0] > score[1]) != (winner == "A")):
                 await reply(interaction, "The score doesn't match the winning team.")
                 return
-            players = await self.db.match_players(match_id)
-            ratings = await self.ratings([p["user_id"] for p in players], m["game"])
-            teams = {p["user_id"]: p["team"] for p in players}
-            team_a = [ratings[u] for u, t in teams.items() if t == "A"]
-            team_b = [ratings[u] for u, t in teams.items() if t == "B"]
-            deltas = compute_deltas(team_a, team_b, winner == "A", score)
-            before = {u: r.rating for u, r in ratings.items()}
-            await self.db.apply_result(match_id, m["game"], winner, deltas, before, teams, score, interaction.user.id)
+            if not interaction.response.is_done():
+                await interaction.response.defer(ephemeral=True, thinking=True)
+            teams = {p["user_id"]: p["team"] for p in await self.db.match_players(match_id)}
+            await self.db.apply_result(match_id, m["game"], winner, teams, score, interaction.user.id)
+            await self.bot.refit(m["game"], credit_match=match_id)
 
         await self.refresh_match_message(match_id)
         await reply(interaction, f"Result recorded for match #{match_id}.", ephemeral=True)
         if interaction.guild:
             await self.move_to_lobby(interaction.guild, match_id)
+
+    async def save_scoreboard(self, interaction: discord.Interaction, match_id: int, scores: dict[int, float]) -> None:
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        async with self.locks[("match", match_id)]:
+            m = await self.db.get_match(match_id)
+            if not m or m["status"] != "complete":
+                await reply(interaction, "Scoreboards can only be entered for completed matches.")
+                return
+            await self.db.set_scores(match_id, scores)
+            await self.bot.refit(m["game"], credit_match=match_id)
+        await self.refresh_match_message(match_id)
+        await reply(interaction, "Scoreboard saved and ratings updated.")
 
     async def cancel_match(self, interaction: discord.Interaction, match_id: int) -> None:
         async with self.locks[("match", match_id)]:
@@ -661,7 +716,9 @@ class Lobby(commands.Cog):
             if not m or m["status"] != "complete":
                 await reply(interaction, "Only completed matches can be undone.")
                 return
+            await interaction.response.defer(ephemeral=True, thinking=True)
             await self.db.revert_result(match_id, m["game"])
+            await self.bot.refit(m["game"])
         await self.refresh_match_message(match_id)
         await reply(interaction, f"Result for match #{match_id} undone. Report it again with the buttons or `/match report`.")
 

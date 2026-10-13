@@ -1,7 +1,7 @@
 import pytest
 
 from gues10man.db import Database
-from gues10man.elo import compute_deltas
+from gues10man.rating import refit
 
 
 @pytest.fixture
@@ -10,6 +10,15 @@ async def db(tmp_path):
     await database.connect()
     yield database
     await database.close()
+
+
+async def do_refit(db, credit=None):
+    matches, anchors = await db.fit_inputs("valorant")
+    before = await db.current_ratings("valorant")
+    after = refit(matches, anchors, 5)
+    await db.write_ratings("valorant", after)
+    if credit:
+        await db.add_match_deltas(credit, before, after)
 
 
 async def test_queue_pop_and_result_roundtrip(db):
@@ -23,10 +32,9 @@ async def test_queue_pop_and_result_roundtrip(db):
 
     await db.set_teams(match_id, list(range(5)), list(range(5, 10)), (0, 5))
     await db.update_match(match_id, status="live", map="Ascent")
-    ratings = {uid: (await db.get_rating(uid, "valorant")).as_player() for uid in range(10)}
     teams = {uid: "A" if uid < 5 else "B" for uid in range(10)}
-    deltas = compute_deltas([ratings[u] for u in range(5)], [ratings[u] for u in range(5, 10)], True, (13, 7))
-    await db.apply_result(match_id, "valorant", "A", deltas, {u: r.rating for u, r in ratings.items()}, teams, (13, 7), 0)
+    await db.apply_result(match_id, "valorant", "A", teams, (13, 7), 0)
+    await do_refit(db, match_id)
 
     winner = await db.get_rating(0, "valorant")
     assert winner.wins == 1 and winner.rating > 1000
@@ -35,7 +43,16 @@ async def test_queue_pop_and_result_roundtrip(db):
     assert history[0]["map"] == "Ascent"
     assert (await db.captain_record(0, "valorant")) == (1, 1)
 
+    assert history[0]["rating_delta"] > 0
+
+    await db.set_scores(match_id, {0: 310, 1: 120})
+    matches, _ = await db.fit_inputs("valorant")
+    assert matches[0].scores == {0: 310, 1: 120}
+    await do_refit(db, match_id)
+    assert (await db.get_rating(0, "valorant")).rating > (await db.get_rating(1, "valorant")).rating
+
     await db.revert_result(match_id, "valorant")
+    await do_refit(db)
     restored = await db.get_rating(0, "valorant")
     assert restored.games == 0 and abs(restored.rating - 1000) < 1e-9
 
@@ -43,5 +60,6 @@ async def test_queue_pop_and_result_roundtrip(db):
 async def test_leaderboard_orders(db):
     await db.seed_rating(1, "valorant", 1500, "Diamond 1")
     await db.seed_rating(2, "valorant", 900, None)
+    await do_refit(db)
     rows = await db.leaderboard("valorant", "elo", min_games=0)
     assert [r.user_id for r in rows] == [1, 2]

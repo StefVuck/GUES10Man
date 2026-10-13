@@ -6,6 +6,7 @@ from dataclasses import dataclass
 import aiosqlite
 
 from .elo import PlayerRating
+from .rating import MatchRecord
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS players (
@@ -19,6 +20,7 @@ CREATE TABLE IF NOT EXISTS ratings (
     user_id INTEGER NOT NULL,
     game TEXT NOT NULL,
     rating REAL NOT NULL,
+    anchor REAL NOT NULL,
     games INTEGER NOT NULL DEFAULT 0,
     wins INTEGER NOT NULL DEFAULT 0,
     losses INTEGER NOT NULL DEFAULT 0,
@@ -76,6 +78,7 @@ CREATE TABLE IF NOT EXISTS match_players (
     pick_order INTEGER,
     rating_before REAL,
     rating_delta REAL,
+    score REAL,
     PRIMARY KEY (match_id, user_id)
 );
 
@@ -90,6 +93,7 @@ class Rating:
     user_id: int
     game: str
     rating: float
+    anchor: float
     games: int
     wins: int
     losses: int
@@ -159,19 +163,67 @@ class Database:
             return existing
         await self.ensure_player(user_id)
         await self.db.execute(
-            "INSERT INTO ratings (user_id, game, rating, peak_rating) VALUES (?, ?, ?, ?)",
-            (user_id, game, default, default),
+            "INSERT INTO ratings (user_id, game, rating, anchor, peak_rating) VALUES (?, ?, ?, ?, ?)",
+            (user_id, game, default, default, default),
         )
         await self.db.commit()
-        return Rating(user_id, game, default, 0, 0, 0, None, default)
+        return Rating(user_id, game, default, default, 0, 0, 0, None, default)
 
-    async def seed_rating(self, user_id: int, game: str, rating: float, seed_rank: str | None) -> None:
+    async def seed_rating(self, user_id: int, game: str, anchor: float, seed_rank: str | None) -> None:
+        """Sets where a player's prior is centred. Call a refit afterwards to update ratings."""
         await self.ensure_player(user_id)
         await self.db.execute(
-            """INSERT INTO ratings (user_id, game, rating, seed_rank, peak_rating) VALUES (?, ?, ?, ?, ?)
-               ON CONFLICT(user_id, game) DO UPDATE SET rating = excluded.rating, seed_rank = excluded.seed_rank,
-               peak_rating = MAX(ratings.peak_rating, excluded.rating)""",
-            (user_id, game, rating, seed_rank, rating),
+            """INSERT INTO ratings (user_id, game, rating, anchor, seed_rank, peak_rating) VALUES (?, ?, ?, ?, ?, ?)
+               ON CONFLICT(user_id, game) DO UPDATE SET anchor = excluded.anchor, seed_rank = excluded.seed_rank""",
+            (user_id, game, anchor, anchor, seed_rank, anchor),
+        )
+        await self.db.commit()
+
+    async def fit_inputs(self, game: str) -> tuple[list[MatchRecord], dict[int, float]]:
+        async with self.db.execute("SELECT user_id, anchor FROM ratings WHERE game = ?", (game,)) as cur:
+            anchors = {r["user_id"]: r["anchor"] for r in await cur.fetchall()}
+        async with self.db.execute(
+            """SELECT m.id, m.winner, mp.user_id, mp.team, mp.score FROM matches m
+               JOIN match_players mp ON mp.match_id = m.id
+               WHERE m.game = ? AND m.status = 'complete' ORDER BY m.id""",
+            (game,),
+        ) as cur:
+            rows = await cur.fetchall()
+        records: dict[int, MatchRecord] = {}
+        for r in rows:
+            rec = records.setdefault(r["id"], MatchRecord([], []))
+            (rec.winners if r["team"] == r["winner"] else rec.losers).append(r["user_id"])
+            if r["score"] is not None:
+                rec.scores = rec.scores or {}
+                rec.scores[r["user_id"]] = r["score"]
+        return list(records.values()), anchors
+
+    async def current_ratings(self, game: str) -> dict[int, float]:
+        async with self.db.execute("SELECT user_id, rating FROM ratings WHERE game = ?", (game,)) as cur:
+            return {r["user_id"]: r["rating"] for r in await cur.fetchall()}
+
+    async def write_ratings(self, game: str, ratings: dict[int, float]) -> None:
+        await self.db.executemany(
+            "UPDATE ratings SET rating = ?, peak_rating = MAX(peak_rating, ?) WHERE user_id = ? AND game = ?",
+            [(r, r, uid, game) for uid, r in ratings.items()],
+        )
+        await self.db.commit()
+
+    async def add_match_deltas(self, match_id: int, before: dict[int, float], after: dict[int, float]) -> None:
+        """Credits a refit's rating movement to the match that triggered it."""
+        for p in await self.match_players(match_id):
+            uid = p["user_id"]
+            await self.db.execute(
+                """UPDATE match_players SET rating_before = COALESCE(rating_before, ?),
+                   rating_delta = COALESCE(rating_delta, 0) + ? WHERE match_id = ? AND user_id = ?""",
+                (before[uid], after[uid] - before[uid], match_id, uid),
+            )
+        await self.db.commit()
+
+    async def set_scores(self, match_id: int, scores: dict[int, float]) -> None:
+        await self.db.executemany(
+            "UPDATE match_players SET score = ? WHERE match_id = ? AND user_id = ?",
+            [(v, match_id, uid) for uid, v in scores.items()],
         )
         await self.db.commit()
 
@@ -314,24 +366,16 @@ class Database:
         match_id: int,
         game: str,
         winner: str,
-        deltas: dict[int, float],
-        before: dict[int, float],
         teams: dict[int, str],
         score: tuple[int, int] | None,
         reported_by: int,
     ) -> None:
-        """Writes the result and rating changes in one transaction."""
         try:
-            for uid, delta in deltas.items():
-                won = teams[uid] == winner
+            for uid, team in teams.items():
+                won = team == winner
                 await self.db.execute(
-                    """UPDATE ratings SET rating = rating + ?, games = games + 1, wins = wins + ?, losses = losses + ?,
-                       peak_rating = MAX(peak_rating, rating + ?) WHERE user_id = ? AND game = ?""",
-                    (delta, int(won), int(not won), delta, uid, game),
-                )
-                await self.db.execute(
-                    "UPDATE match_players SET rating_before = ?, rating_delta = ? WHERE match_id = ? AND user_id = ?",
-                    (before[uid], delta, match_id, uid),
+                    "UPDATE ratings SET games = games + 1, wins = wins + ?, losses = losses + ? WHERE user_id = ? AND game = ?",
+                    (int(won), int(not won), uid, game),
                 )
             await self.db.execute(
                 """UPDATE matches SET status = 'complete', winner = ?, score_a = ?, score_b = ?, reported_by = ?,
@@ -344,22 +388,19 @@ class Database:
             raise
 
     async def revert_result(self, match_id: int, game: str) -> None:
-        """Undo a reported result. Deltas are reversed as they were applied, which is
-        exact for the players involved even if they have played since."""
+        """Puts a completed match back to live. Call a refit afterwards."""
         players = await self.match_players(match_id)
         match = await self.get_match(match_id)
         try:
             for p in players:
-                if p["rating_delta"] is None:
-                    continue
                 won = p["team"] == match["winner"]
                 await self.db.execute(
-                    """UPDATE ratings SET rating = rating - ?, games = games - 1, wins = wins - ?, losses = losses - ?
-                       WHERE user_id = ? AND game = ?""",
-                    (p["rating_delta"], int(won), int(not won), p["user_id"], game),
+                    "UPDATE ratings SET games = games - 1, wins = wins - ?, losses = losses - ? WHERE user_id = ? AND game = ?",
+                    (int(won), int(not won), p["user_id"], game),
                 )
             await self.db.execute(
-                "UPDATE match_players SET rating_before = NULL, rating_delta = NULL WHERE match_id = ?", (match_id,)
+                "UPDATE match_players SET rating_before = NULL, rating_delta = NULL, score = NULL WHERE match_id = ?",
+                (match_id,),
             )
             await self.db.execute(
                 "UPDATE matches SET status = 'live', winner = NULL, score_a = NULL, score_b = NULL, finished_at = NULL WHERE id = ?",
