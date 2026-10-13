@@ -162,14 +162,26 @@ class Sandbox(commands.Cog):
             channel, guild_id, me = interaction.channel, interaction.guild.id, interaction.user.id
 
             results = []
+
+            async def progress(text: str) -> None:
+                log.info("Sandbox: %s", text)
+                try:
+                    await interaction.edit_original_response(content=text)
+                except discord.HTTPException:
+                    pass
+
+            await progress("Game 1 of 4: captains draft in progress.")
             match_id = await self.draft_game(channel, guild_id, roster, step_seconds, rng)
             await asyncio.sleep(step_seconds)
+            await progress(f"Game 1 of 4: match #{match_id} is live, simulating the result.")
             results.append(await self.play(match_id, me, scoreboard=False, rng=rng) + " (captains draft)")
 
-            for _ in range(3):
+            for n in range(2, 5):
                 await asyncio.sleep(step_seconds)
+                await progress(f"Game {n} of 4: auto balancing.")
                 match_id = await self.auto_game(channel, guild_id, roster, step_seconds)
                 await asyncio.sleep(step_seconds)
+                await progress(f"Game {n} of 4: match #{match_id} is live, simulating the result and scoreboard.")
                 results.append(await self.play(match_id, me, scoreboard=True, rng=rng) + " (auto balance, with ACS)")
 
             await reply(
@@ -183,7 +195,12 @@ class Sandbox(commands.Cog):
         except Exception as e:
             log.exception("Sandbox run failed")
             await self.cancel_leftovers()
-            await reply(interaction, f"The sandbox run failed: {e}")
+            message = f"The sandbox run failed: {type(e).__name__}: {e}. The bot's terminal has the full error."
+            await reply(interaction, message)
+            try:
+                await interaction.channel.send(message)
+            except discord.HTTPException:
+                pass
         finally:
             self.running = False
 
@@ -193,6 +210,7 @@ class Sandbox(commands.Cog):
             if m["game"] == GAME:
                 self.lobby.drafts.pop(m["id"], None)
                 await self.db.update_match(m["id"], status="cancelled")
+                await self.lobby.refresh_match_message(m["id"])
 
     @test.command(name="reset", description="Delete all sandbox matches and ratings")
     @staff_only()

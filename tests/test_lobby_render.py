@@ -135,3 +135,11 @@ async def test_captains_get_pool_dm(tmp_path, monkeypatch):
     assert "Riot ID Arsenic#9738" in first.fields[0].value
     assert channel.sent == []
     await db.close()
+
+
+def test_not_live_explains_status():
+    from gues10man.cogs.lobby import not_live
+
+    assert "already finished" in not_live(7, {"status": "complete"})
+    assert "cancelled" in not_live(7, {"status": "cancelled"})
+    assert "doesn't exist" in not_live(7, None)

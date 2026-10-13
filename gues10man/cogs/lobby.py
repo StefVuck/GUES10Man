@@ -171,6 +171,16 @@ class ScoreboardModal(discord.ui.Modal):
         await self.cog.save_scoreboard(interaction, self.match_id, scores)
 
 
+def not_live(match_id: int, m) -> str:
+    status = m["status"] if m else None
+    return {
+        "complete": f"Match #{match_id} has already finished. Staff can use `/match undo` if the result was wrong.",
+        "cancelled": f"Match #{match_id} was cancelled.",
+        "setup": f"Match #{match_id} hasn't started yet; teams still need picking.",
+        "drafting": f"Match #{match_id} is still drafting.",
+    }.get(status, f"Match #{match_id} doesn't exist.")
+
+
 def queue_view(game: str) -> discord.ui.View:
     view = discord.ui.View(timeout=None)
     view.add_item(QueueButton("join", game))
@@ -481,8 +491,8 @@ class Lobby(commands.Cog):
         embed, view = await self.render_match(match_id)
         try:
             await channel.get_partial_message(m["message_id"]).edit(embed=embed, view=view)
-        except discord.HTTPException:
-            log.warning("Couldn't update message for match %s", match_id)
+        except discord.HTTPException as e:
+            log.warning("Couldn't update message for match %s: %s", match_id, e)
 
     async def respond_with_match(self, interaction: discord.Interaction | None, match_id: int) -> None:
         m = await self.db.get_match(match_id)
@@ -519,7 +529,7 @@ class Lobby(commands.Cog):
                 return
             m = await self.db.get_match(match_id)
             if m["status"] != "live":
-                await reply(interaction, "This match isn't in progress.")
+                await reply(interaction, not_live(match_id, m))
                 return
             await interaction.response.send_modal(
                 ResultModal(self, match_id, "A" if action == "wina" else "B", GAMES[m["game"]])
@@ -557,7 +567,7 @@ class Lobby(commands.Cog):
                 return
             m = await self.db.get_match(match_id)
             if m["status"] != "live":
-                await reply(interaction, "This match isn't in progress.")
+                await reply(interaction, not_live(match_id, m))
                 return
             await self.db.update_match(match_id, map=self.random_map(GAMES[m["game"]], exclude=m["map"]))
             await self.respond_with_match(interaction, match_id)
@@ -740,7 +750,7 @@ class Lobby(commands.Cog):
         async with self.locks[("match", match_id)]:
             m = await self.db.get_match(match_id)
             if not m or m["status"] != "live":
-                return "This match isn't in progress, so there's nothing to report."
+                return not_live(match_id, m)
             if score and ((score[0] > score[1]) != (winner == "A")):
                 return "The score doesn't match the winning team."
             teams = {p["user_id"]: p["team"] for p in await self.db.match_players(match_id)}
