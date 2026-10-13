@@ -16,6 +16,7 @@ class Game:
     rank_step: float = 60.0
     score_label: str = "score"
     sides: tuple[str, str] = ("Team A", "Team B")
+    available: bool = True
 
     @property
     def lobby_size(self) -> int:
@@ -62,7 +63,7 @@ GAMES: dict[str, Game] = {
             team_size=5,
             maps=(
                 "Abyss", "Ascent", "Bind", "Breeze", "Corrode", "Fracture", "Haven",
-                "Icebox", "Lotus", "Pearl", "Split", "Sunset",
+                "Icebox", "Lotus", "Pearl", "Split", "Summit", "Sunset",
             ),
             ranks=VALORANT_RANKS,
             score_label="ACS",
@@ -83,8 +84,9 @@ GAMES: dict[str, Game] = {
             team_size=5,
             maps=("Ancient", "Anubis", "Dust II", "Inferno", "Mirage", "Nuke", "Train"),
             sides=("Terrorists", "Counter-Terrorists"),
+            available=False,
         ),
-        Game(key="lol", name="League of Legends", team_size=5, maps=("Summoner's Rift",), sides=("Blue side", "Red side")),
+        Game(key="lol", name="League of Legends", team_size=5, maps=("Summoner's Rift",), sides=("Blue side", "Red side"), available=False),
         Game(
             key="overwatch",
             name="Overwatch 2",
@@ -95,6 +97,7 @@ GAMES: dict[str, Game] = {
             ),
             rank_base=600.0,
             rank_step=35.0,
+            available=False,
         ),
     ]
 }

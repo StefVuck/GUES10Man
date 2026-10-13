@@ -20,7 +20,22 @@ def mention(user_id: int) -> str:
     return f"**{name}**" if name else f"<@{user_id}>"
 
 
-GAME_CHOICES = [app_commands.Choice(name=g.name, value=g.key) for g in GAMES.values()]
+GAME_CHOICES = [
+    app_commands.Choice(name=g.name if g.available else f"{g.name} (coming soon)", value=g.key) for g in GAMES.values()
+]
+
+
+def game_available():
+    """Commands still list every game, but only Valorant (and the sandbox) actually run for now."""
+
+    async def predicate(interaction: discord.Interaction) -> bool:
+        key = getattr(interaction.namespace, "game", None)
+        game = GAMES.get(key) if key else None
+        if game and not game.available:
+            raise app_commands.CheckFailure(f"{game.name} support is coming soon. Only Valorant works for now.")
+        return True
+
+    return app_commands.check(predicate)
 
 
 async def is_staff(interaction: discord.Interaction) -> bool:

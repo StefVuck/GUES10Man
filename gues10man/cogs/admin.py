@@ -7,7 +7,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from ..games import DEFAULT_RATING, GAMES
-from ..util import GAME_CHOICES, fmt_rating, reply, staff_only
+from ..util import GAME_CHOICES, game_available, fmt_rating, reply, staff_only
 
 if TYPE_CHECKING:
     from ..bot import TenManBot
@@ -34,6 +34,7 @@ class Admin(commands.Cog):
 
     @rating.command(name="seed", description="Set the Elo a player's rating is anchored to; results still move them from there")
     @app_commands.choices(game=GAME_CHOICES)
+    @game_available()
     @staff_only()
     async def rating_seed(
         self, interaction: discord.Interaction, member: discord.Member, game: str, elo: app_commands.Range[int, 0, 4000]
@@ -47,6 +48,7 @@ class Admin(commands.Cog):
 
     @rating.command(name="adjust", description="Shift a player's seed up or down")
     @app_commands.choices(game=GAME_CHOICES)
+    @game_available()
     @staff_only()
     async def rating_adjust(
         self, interaction: discord.Interaction, member: discord.Member, game: str, amount: app_commands.Range[int, -1000, 1000]

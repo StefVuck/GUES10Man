@@ -2,7 +2,7 @@
 
 A Discord bot for running 10 man custom games on the uni esports server. Players join a queue with a button, and when it fills the bot opens a match. The ten players then choose between an automatically balanced split and a captains draft. Once teams are set, the bot picks a map and pings everyone with the team they're on. After the game, a captain or staff member reports the result and Elo is updated. Several matches can run at once: each match has its own number, and the queue keeps filling for the next lobby while earlier games are still being played.
 
-Valorant is the main game. Counter-Strike 2, League of Legends and Overwatch 2 are also set up, and new games can be added in `gues10man/games.py`. Ratings, records and leaderboards are kept separately for each game.
+Valorant is the only game running for now. Counter-Strike 2, League of Legends and Overwatch 2 are set up in `gues10man/games.py` but marked as coming soon, so picking them in a command just says so. Set `available=True` on a game to switch it on. Ratings, records and leaderboards are kept separately for each game.
 
 ## Getting started
 

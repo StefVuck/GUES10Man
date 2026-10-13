@@ -16,7 +16,18 @@ from discord.ext import commands
 from ..balance import auto_balance, choose_captains, snake_order
 from ..elo import PlayerRating, win_probability
 from ..games import DEFAULT_RATING, GAMES, Game
-from ..util import FAKE_PLAYERS, GAME_CHOICES, missing_channel_permissions, mention, fmt_delta, fmt_rating, is_staff, reply, staff_only
+from ..util import (
+    FAKE_PLAYERS,
+    GAME_CHOICES,
+    fmt_delta,
+    fmt_rating,
+    game_available,
+    is_staff,
+    mention,
+    missing_channel_permissions,
+    reply,
+    staff_only,
+)
 
 if TYPE_CHECKING:
     from ..bot import TenManBot
@@ -374,6 +385,7 @@ class Lobby(commands.Cog):
 
     @queue.command(name="open", description="Post a queue for a game in this channel")
     @app_commands.choices(game=GAME_CHOICES)
+    @game_available()
     @staff_only()
     async def queue_open(self, interaction: discord.Interaction, game: str) -> None:
         assert interaction.guild is not None and interaction.channel is not None
@@ -398,6 +410,7 @@ class Lobby(commands.Cog):
 
     @queue.command(name="close", description="Close a queue and remove everyone from it")
     @app_commands.choices(game=GAME_CHOICES)
+    @game_available()
     @staff_only()
     async def queue_close(self, interaction: discord.Interaction, game: str) -> None:
         assert interaction.guild is not None
@@ -419,6 +432,7 @@ class Lobby(commands.Cog):
 
     @queue.command(name="kick", description="Remove someone from a queue")
     @app_commands.choices(game=GAME_CHOICES)
+    @game_available()
     @staff_only()
     async def queue_kick(self, interaction: discord.Interaction, game: str, member: discord.Member) -> None:
         assert interaction.guild is not None
@@ -428,6 +442,7 @@ class Lobby(commands.Cog):
 
     @queue.command(name="clear", description="Empty a queue")
     @app_commands.choices(game=GAME_CHOICES)
+    @game_available()
     @staff_only()
     async def queue_clear(self, interaction: discord.Interaction, game: str) -> None:
         assert interaction.guild is not None

@@ -10,7 +10,7 @@ from discord.ext import commands
 from ..games import DEFAULT_RATING, GAMES, Game
 from ..rating import PERF_WEIGHT
 from ..ranks import REGIONS, RankLookupError
-from ..util import GAME_CHOICES, mention, fmt_delta, fmt_rating, is_staff, reply
+from ..util import GAME_CHOICES, game_available, mention, fmt_delta, fmt_rating, is_staff, reply
 
 if TYPE_CHECKING:
     from ..bot import TenManBot
@@ -148,6 +148,7 @@ class Players(commands.Cog):
 
     @app_commands.command(name="setrank", description="Set your rank manually to seed your Elo before your first game")
     @app_commands.choices(game=[c for c in GAME_CHOICES if GAMES[c.value].ranks])
+    @game_available()
     @app_commands.autocomplete(rank=rank_autocomplete)
     async def setrank(
         self, interaction: discord.Interaction, game: str, rank: str, member: discord.Member | None = None
@@ -173,6 +174,7 @@ class Players(commands.Cog):
 
     @app_commands.command(name="profile", description="Show someone's 10 man record and Elo")
     @app_commands.choices(game=GAME_CHOICES)
+    @game_available()
     async def profile(
         self, interaction: discord.Interaction, member: discord.Member | None = None, game: str = "valorant"
     ) -> None:
@@ -227,6 +229,7 @@ class Players(commands.Cog):
 
     @app_commands.command(name="history", description="Recent 10 man matches for a player")
     @app_commands.choices(game=GAME_CHOICES)
+    @game_available()
     async def history(
         self, interaction: discord.Interaction, member: discord.Member | None = None, game: str = "valorant"
     ) -> None:
@@ -253,6 +256,7 @@ class Players(commands.Cog):
         ],
     )
     @app_commands.describe(min_games="Hide players with fewer games than this")
+    @game_available()
     async def leaderboard(
         self,
         interaction: discord.Interaction,

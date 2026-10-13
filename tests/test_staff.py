@@ -43,3 +43,19 @@ def test_guild_ids_parse_from_env(monkeypatch):
     assert Settings.from_env().guild_ids == (111, 222)
     monkeypatch.setenv("GUILD_ID", "")
     assert Settings.from_env().guild_ids == ()
+
+
+async def test_other_games_are_coming_soon():
+    import pytest
+    from discord import app_commands
+
+    from gues10man.games import GAMES
+    from gues10man.util import GAME_CHOICES, game_available
+
+    check = game_available()(lambda: None).__discord_app_commands_checks__[0]
+    for key in ("valorant", "sandbox"):
+        assert await check(SimpleNamespace(namespace=SimpleNamespace(game=key)))
+    with pytest.raises(app_commands.CheckFailure, match="coming soon"):
+        await check(SimpleNamespace(namespace=SimpleNamespace(game="cs2")))
+    assert "Summit" in GAMES["valorant"].maps
+    assert {c.name for c in GAME_CHOICES} >= {"Valorant", "Counter-Strike 2 (coming soon)"}
