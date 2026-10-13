@@ -340,6 +340,12 @@ class Database:
                 )
         await self.db.commit()
 
+    async def swap_sides(self, match_id: int) -> None:
+        await self.db.execute(
+            "UPDATE match_players SET team = CASE team WHEN 'A' THEN 'B' ELSE 'A' END WHERE match_id = ?", (match_id,)
+        )
+        await self.db.commit()
+
     async def active_match_for(self, user_id: int) -> int | None:
         async with self.db.execute(
             f"""SELECT m.id FROM matches m JOIN match_players mp ON mp.match_id = m.id

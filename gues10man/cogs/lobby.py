@@ -14,7 +14,7 @@ from discord.ext import commands
 from ..balance import auto_balance, choose_captains, snake_order
 from ..elo import PlayerRating, win_probability
 from ..games import DEFAULT_RATING, GAMES, Game
-from ..util import GAME_CHOICES, TEAM_NAMES, fmt_delta, fmt_rating, is_staff, reply, staff_only
+from ..util import GAME_CHOICES, fmt_delta, fmt_rating, is_staff, reply, staff_only
 
 if TYPE_CHECKING:
     from ..bot import TenManBot
@@ -77,19 +77,19 @@ MATCH_BUTTONS = {
     "auto": ("Auto balance", discord.ButtonStyle.primary),
     "draft": ("Captains draft (top Elo)", discord.ButtonStyle.primary),
     "draftr": ("Captains draft (random)", discord.ButtonStyle.secondary),
-    "wina": (f"{TEAM_NAMES['A']} won", discord.ButtonStyle.success),
-    "winb": (f"{TEAM_NAMES['B']} won", discord.ButtonStyle.success),
+    "wina": ("Team A won", discord.ButtonStyle.success),
+    "winb": ("Team B won", discord.ButtonStyle.success),
     "map": ("Reroll map", discord.ButtonStyle.secondary),
-    "sca": (f"{TEAM_NAMES['A']} scoreboard", discord.ButtonStyle.secondary),
-    "scb": (f"{TEAM_NAMES['B']} scoreboard", discord.ButtonStyle.secondary),
+    "sca": ("Team A scoreboard", discord.ButtonStyle.secondary),
+    "scb": ("Team B scoreboard", discord.ButtonStyle.secondary),
     "cancel": ("Cancel match", discord.ButtonStyle.danger),
 }
 
 
 class MatchButton(discord.ui.DynamicItem[discord.ui.Button], template=r"m:(?P<action>[a-z]+):(?P<id>\d+)"):
-    def __init__(self, action: str, match_id: int):
-        label, style = MATCH_BUTTONS[action]
-        super().__init__(discord.ui.Button(label=label, style=style, custom_id=f"m:{action}:{match_id}"))
+    def __init__(self, action: str, match_id: int, label: str | None = None):
+        default, style = MATCH_BUTTONS[action]
+        super().__init__(discord.ui.Button(label=label or default, style=style, custom_id=f"m:{action}:{match_id}"))
         self.action = action
         self.match_id = match_id
 
@@ -125,11 +125,12 @@ class DraftSelect(discord.ui.DynamicItem[discord.ui.Select], template=r"d:(?P<id
 
 
 class ResultModal(discord.ui.Modal):
-    score_a = discord.ui.TextInput(label=f"{TEAM_NAMES['A']} rounds (optional)", required=False, max_length=2)
-    score_b = discord.ui.TextInput(label=f"{TEAM_NAMES['B']} rounds (optional)", required=False, max_length=2)
-
-    def __init__(self, cog: Lobby, match_id: int, winner: str):
-        super().__init__(title=f"Report match #{match_id}: {TEAM_NAMES[winner]} won")
+    def __init__(self, cog: Lobby, match_id: int, winner: str, game: Game):
+        super().__init__(title=f"Report match #{match_id}: {game.side(winner)} won")
+        self.score_a = discord.ui.TextInput(label=f"{game.side('A')} rounds (optional)", required=False, max_length=2)
+        self.score_b = discord.ui.TextInput(label=f"{game.side('B')} rounds (optional)", required=False, max_length=2)
+        self.add_item(self.score_a)
+        self.add_item(self.score_b)
         self.cog = cog
         self.match_id = match_id
         self.winner = winner
@@ -149,8 +150,8 @@ class ScoreboardModal(discord.ui.Modal):
     """One number per player on a team. The fit ranks each team's scoreboard,
     so only the order matters, not the scale."""
 
-    def __init__(self, cog: Lobby, match_id: int, team: str, players: list[tuple[int, str, float | None]], label: str):
-        super().__init__(title=f"Match #{match_id}: {TEAM_NAMES[team]} {label}")
+    def __init__(self, cog: Lobby, match_id: int, team_name: str, players: list[tuple[int, str, float | None]], label: str):
+        super().__init__(title=f"Match #{match_id}: {team_name} {label}")
         self.cog = cog
         self.match_id = match_id
         self.inputs: dict[int, discord.ui.TextInput] = {}
@@ -177,10 +178,18 @@ def queue_view(game: str) -> discord.ui.View:
     return view
 
 
-def match_view(match_id: int, actions: list[str]) -> discord.ui.View:
+def match_view(match_id: int, actions: list[str], game: Game | None = None) -> discord.ui.View:
+    labels = {}
+    if game:
+        labels = {
+            "wina": f"{game.side('A')} won",
+            "winb": f"{game.side('B')} won",
+            "sca": f"{game.side('A')} scoreboard",
+            "scb": f"{game.side('B')} scoreboard",
+        }
     view = discord.ui.View(timeout=None)
     for action in actions:
-        view.add_item(MatchButton(action, match_id))
+        view.add_item(MatchButton(action, match_id, labels.get(action)))
     return view
 
 
@@ -378,7 +387,7 @@ class Lobby(commands.Cog):
             rating = p["rating_before"] if delta and p["rating_before"] is not None else ratings[uid].rating
             text = f"<@{uid}> ({fmt_rating(rating)})"
             if p["is_captain"]:
-                text = "👑 " + text
+                text += " (C)"
             if delta and p["rating_delta"] is not None:
                 text += f" **{fmt_delta(p['rating_delta'])}**"
             if delta and p["score"] is not None:
@@ -398,16 +407,21 @@ class Lobby(commands.Cog):
             if state is None:
                 embed.description = "This draft was interrupted. Staff can cancel the match."
                 return embed, match_view(match_id, ["cancel"])
-            for side, key in ((0, "A"), (1, "B")):
+            guild = self.bot.get_guild(m["guild_id"])
+            for side in (0, 1):
                 members = [next(p for p in players if p["user_id"] == u) for u in state.teams[side]]
-                embed.add_field(name=TEAM_NAMES[key], value="\n".join(line(p) for p in members) or "-", inline=True)
+                captain = state.captains[side]
+                captain_name = await self.name(guild, captain) if guild else str(captain)
+                embed.add_field(name=f"Team {captain_name}", value="\n".join(line(p) for p in members) or "-", inline=True)
             embed.add_field(
                 name="Available",
                 value="\n".join(f"<@{u}> ({fmt_rating(ratings[u].rating)})" for u in state.pool) or "-",
                 inline=False,
             )
-            embed.description = f"<@{state.current_captain}> is picking (pick {state.pick_number + 1} of {len(state.order)})."
-            guild = self.bot.get_guild(m["guild_id"])
+            embed.description = (
+                f"<@{state.current_captain}> is picking (pick {state.pick_number + 1} of {len(state.order)}). "
+                "Sides are decided by coin flip once the draft is done."
+            )
             options = []
             for u in sorted(state.pool, key=lambda u: ratings[u].rating, reverse=True):
                 label = await self.name(guild, u) if guild else str(u)
@@ -427,9 +441,9 @@ class Lobby(commands.Cog):
         done = status == "complete"
         for key, team in (("A", team_a), ("B", team_b)):
             avg = sum((p["rating_before"] if done else ratings[p["user_id"]].rating) for p in team) / len(team)
-            title = f"{TEAM_NAMES[key]} (avg {fmt_rating(avg)})"
+            title = f"{game.side(key)} (avg {fmt_rating(avg)})"
             if done and m["winner"] == key:
-                title = "🏆 " + title
+                title += " - Winner"
             embed.add_field(name=title, value="\n".join(line(p, delta=done) for p in team), inline=True)
 
         if m["map"]:
@@ -437,16 +451,16 @@ class Lobby(commands.Cog):
 
         if done:
             score = f" {m['score_a']}-{m['score_b']}" if m["score_a"] is not None else ""
-            embed.description = f"**{TEAM_NAMES[m['winner']]} won{score}.**"
+            embed.description = f"**{game.side(m['winner'])} won{score}.**"
             embed.colour = discord.Colour.green()
             embed.set_footer(text=f"Captains can add each team's {game.score_label} to refine ratings.")
-            return embed, match_view(match_id, ["sca", "scb"])
+            return embed, match_view(match_id, ["sca", "scb"], game)
 
         prob = win_probability([ratings[p["user_id"]] for p in team_a], [ratings[p["user_id"]] for p in team_b])
-        embed.description = f"Predicted: {TEAM_NAMES['A']} {prob:.0%} / {TEAM_NAMES['B']} {1 - prob:.0%}"
+        embed.description = f"Predicted: {game.side('A')} {prob:.0%} / {game.side('B')} {1 - prob:.0%}"
         embed.set_footer(text="Staff or a captain reports the winner when the game ends.")
         actions = ["wina", "winb"] + (["map"] if game.maps else []) + ["cancel"]
-        return embed, match_view(match_id, actions)
+        return embed, match_view(match_id, actions, game)
 
     async def refresh_match_message(self, match_id: int) -> None:
         m = await self.db.get_match(match_id)
@@ -497,7 +511,9 @@ class Lobby(commands.Cog):
             if m["status"] != "live":
                 await reply(interaction, "This match isn't in progress.")
                 return
-            await interaction.response.send_modal(ResultModal(self, match_id, "A" if action == "wina" else "B"))
+            await interaction.response.send_modal(
+                ResultModal(self, match_id, "A" if action == "wina" else "B", GAMES[m["game"]])
+            )
             return
 
         if action in ("sca", "scb"):
@@ -512,8 +528,10 @@ class Lobby(commands.Cog):
                 for p in await self.db.match_players(match_id)
                 if p["team"] == team
             ]
-            label = GAMES[m["game"]].score_label
-            await interaction.response.send_modal(ScoreboardModal(self, match_id, team, players, label))
+            game = GAMES[m["game"]]
+            await interaction.response.send_modal(
+                ScoreboardModal(self, match_id, game.side(team), players, game.score_label)
+            )
             return
 
         if action == "cancel":
@@ -601,6 +619,8 @@ class Lobby(commands.Cog):
 
     async def go_live(self, interaction: discord.Interaction, match_id: int) -> None:
         m = await self.db.get_match(match_id)
+        if random.random() < 0.5:
+            await self.db.swap_sides(match_id)
         await self.db.update_match(match_id, status="live", map=self.random_map(GAMES[m["game"]]))
         await self.respond_with_match(interaction, match_id)
         await self.announce_teams(match_id)
@@ -610,13 +630,14 @@ class Lobby(commands.Cog):
         channel = self.bot.get_channel(m["channel_id"])
         if not isinstance(channel, discord.abc.Messageable):
             return
+        game = GAMES[m["game"]]
         players = await self.db.match_players(match_id)
         lines = [f"**Match #{match_id} is live**" + (f" on **{m['map']}**" if m["map"] else "")]
         for key in ("A", "B"):
             team = [p for p in players if p["team"] == key]
             team.sort(key=lambda p: not p["is_captain"])
-            mentions = " ".join(("👑 " if p["is_captain"] else "") + f"<@{p['user_id']}>" for p in team)
-            lines.append(f"**{TEAM_NAMES[key]}:** {mentions}")
+            mentions = " ".join(f"<@{p['user_id']}>" + (" (C)" if p["is_captain"] else "") for p in team)
+            lines.append(f"**{game.side(key)}:** {mentions}")
         try:
             await channel.send(
                 "\n".join(lines),
@@ -671,21 +692,30 @@ class Lobby(commands.Cog):
     # slash commands
 
     @match.command(name="report", description="Report the winner of a match")
-    @app_commands.describe(winner="The team that won", score_a="Rounds won by Team A", score_b="Rounds won by Team B")
-    @app_commands.choices(winner=[app_commands.Choice(name=v, value=k) for k, v in TEAM_NAMES.items()])
+    @app_commands.describe(
+        winning_player="Anyone on the winning team",
+        winner_rounds="Rounds won by the winning team",
+        loser_rounds="Rounds won by the losing team",
+    )
     async def match_report(
         self,
         interaction: discord.Interaction,
         match_id: int,
-        winner: str,
-        score_a: app_commands.Range[int, 0, 99] | None = None,
-        score_b: app_commands.Range[int, 0, 99] | None = None,
+        winning_player: discord.Member,
+        winner_rounds: app_commands.Range[int, 0, 99] | None = None,
+        loser_rounds: app_commands.Range[int, 0, 99] | None = None,
     ) -> None:
         if not await self.can_manage_match(interaction, match_id, captains_only=True):
             await reply(interaction, "Only staff or a captain can report the result.")
             return
-        score = (score_a, score_b) if score_a is not None and score_b is not None else None
-        await self.finish_match(interaction, match_id, winner, score)
+        team = next((p["team"] for p in await self.db.match_players(match_id) if p["user_id"] == winning_player.id), None)
+        if team is None:
+            await reply(interaction, f"{winning_player.mention} isn't on a team in match #{match_id}.")
+            return
+        score = None
+        if winner_rounds is not None and loser_rounds is not None:
+            score = (winner_rounds, loser_rounds) if team == "A" else (loser_rounds, winner_rounds)
+        await self.finish_match(interaction, match_id, team, score)
 
     @match.command(name="cancel", description="Cancel a match without affecting ratings")
     @staff_only()
@@ -733,7 +763,7 @@ class Lobby(commands.Cog):
             await self.db.db.commit()
             await self.db.leave_queue(m["guild_id"], m["game"], sub.id)
         await self.refresh_match_message(match_id)
-        team = f" on **{TEAM_NAMES[teams[out.id]]}**" if teams[out.id] else ""
+        team = f" on **{GAMES[m['game']].side(teams[out.id])}**" if teams[out.id] else ""
         await reply(interaction, f"{sub.mention} is in for {out.mention} in match #{match_id}{team}.", ephemeral=False)
 
 

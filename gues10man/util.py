@@ -12,8 +12,6 @@ if TYPE_CHECKING:
 
 GAME_CHOICES = [app_commands.Choice(name=g.name, value=g.key) for g in GAMES.values()]
 
-TEAM_NAMES = {"A": "Team A", "B": "Team B"}
-
 
 async def is_staff(interaction: discord.Interaction) -> bool:
     member = interaction.user

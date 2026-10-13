@@ -15,10 +15,14 @@ class Game:
     rank_base: float = 600.0
     rank_step: float = 60.0
     score_label: str = "score"
+    sides: tuple[str, str] = ("Team A", "Team B")
 
     @property
     def lobby_size(self) -> int:
         return self.team_size * 2
+
+    def side(self, key: str) -> str:
+        return self.sides[0 if key == "A" else 1]
 
     def rating_for_rank(self, rank: str) -> float | None:
         idx = self.rank_index(rank)
@@ -62,14 +66,16 @@ GAMES: dict[str, Game] = {
             ),
             ranks=VALORANT_RANKS,
             score_label="ACS",
+            sides=("Attackers", "Defenders"),
         ),
         Game(
             key="cs2",
             name="Counter-Strike 2",
             team_size=5,
             maps=("Ancient", "Anubis", "Dust II", "Inferno", "Mirage", "Nuke", "Train"),
+            sides=("Terrorists", "Counter-Terrorists"),
         ),
-        Game(key="lol", name="League of Legends", team_size=5, maps=("Summoner's Rift",)),
+        Game(key="lol", name="League of Legends", team_size=5, maps=("Summoner's Rift",), sides=("Blue side", "Red side")),
         Game(
             key="overwatch",
             name="Overwatch 2",

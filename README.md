@@ -31,7 +31,7 @@ The match message lets any of the ten choose how teams are made:
 
 **Captains draft** uses either the two highest rated players or two random players as captains. The lower rated captain picks first, and picks follow a snake order (A B B A A B B A). Only the captain whose turn it is, or staff, can use the picker. Drafts are held in memory, so a draft cut off by a restart goes back to the mode choice.
 
-Once teams are locked in, the bot picks a random map from the game's pool, shows the predicted win chance and posts a reply pinging each team by match number, so players in overlapping games know which lobby and side they're on. Captains can reroll the map. Either captain or staff reports the winner with a button, optionally entering the round score, and Elo changes are posted on the match message.
+Once teams are locked in, a coin flip decides which team starts on attack and which on defence (Terrorists and Counter-Terrorists in CS2, blue and red side in League). The bot picks a random map from the game's pool, shows the predicted win chance and posts a reply pinging each side by match number, so players in overlapping games know which lobby and side they're on. Captains are marked with (C). Captains can reroll the map. Either captain or staff reports the winner with a button, optionally entering the round score, and Elo changes are posted on the match message. `/match report` does the same from a command: name any player on the winning team rather than picking a side.
 
 Staff can cancel a match at any stage. They can swap a player out with `/match sub`, and `/match undo` reverses a mistaken result, putting the match back to live so it can be reported again.
 

@@ -74,5 +74,23 @@ async def test_concurrent_matches_announce_their_own_teams(tmp_path, monkeypatch
 
     one, two = channel.sent
     assert f"Match #{first}" in one and "<@4>" in one and "<@14>" not in one
-    assert f"Match #{second}" in two and "👑 <@15>" in two.split("Team B:")[1]
+    assert f"Match #{second}" in two and "<@15> (C)" in two
+    await db.close()
+
+
+async def test_announcement_uses_game_sides_and_swap(tmp_path, monkeypatch):
+    import discord
+
+    db = Database(str(tmp_path / "sides.db"))
+    await db.connect()
+    channel = FakeChannel()
+    monkeypatch.setattr(discord.abc, "Messageable", FakeChannel)
+    cog = Lobby(SimpleNamespace(db=db, get_guild=lambda _id: None, get_channel=lambda _id: channel))
+    match_id = await db.create_match(1, "valorant", list(range(10)))
+    await db.set_teams(match_id, list(range(5)), list(range(5, 10)), (0, 5))
+    await db.swap_sides(match_id)
+    await db.update_match(match_id, status="live", channel_id=99)
+    await cog.announce_teams(match_id)
+    attackers, defenders = channel.sent[0].split("**Defenders:**")
+    assert "**Attackers:** <@5> (C)" in attackers and "<@0> (C)" in defenders
     await db.close()

@@ -33,13 +33,13 @@ class LeaderboardView(discord.ui.View):
         self.prev.disabled = self.index == 0
         self.next.disabled = self.index >= len(self.pages) - 1
 
-    @discord.ui.button(label="◀", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="Previous", style=discord.ButtonStyle.secondary)
     async def prev(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         self.index -= 1
         self._sync()
         await interaction.response.edit_message(embed=self.pages[self.index], view=self)
 
-    @discord.ui.button(label="▶", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="Next", style=discord.ButtonStyle.secondary)
     async def next(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         self.index += 1
         self._sync()
@@ -178,8 +178,8 @@ class Players(commands.Cog):
                 score = f" {own}-{other}"
             when = datetime.fromtimestamp(h["finished_at"], tz=timezone.utc)
             lines.append(
-                f"`#{h['id']:<4}` {'✅' if won else '❌'}{score} {h['map'] or ''} · {fmt_delta(h['rating_delta'] or 0)}"
-                f"{' 👑' if h['is_captain'] else ''} · {discord.utils.format_dt(when, 'R')}"
+                f"`#{h['id']:<4}` {'W' if won else 'L'}{score} {h['map'] or ''} · {fmt_delta(h['rating_delta'] or 0)}"
+                f"{' (C)' if h['is_captain'] else ''} · {discord.utils.format_dt(when, 'R')}"
             )
         embed = discord.Embed(title=f"{target.display_name}'s recent matches", description="\n".join(lines))
         await interaction.response.send_message(embed=embed)
@@ -210,9 +210,8 @@ class Players(commands.Cog):
         for start in range(0, len(rows), PAGE_SIZE):
             lines = []
             for i, r in enumerate(rows[start : start + PAGE_SIZE], start + 1):
-                medal = {1: "🥇", 2: "🥈", 3: "🥉"}.get(i, f"`{i:>2}`")
                 wr = f"{r.wins / r.games:.0%}" if r.games else "-"
-                lines.append(f"{medal} <@{r.user_id}> **{fmt_rating(r.rating)}** · {r.wins}W {r.losses}L ({wr})")
+                lines.append(f"`{i:>2}` <@{r.user_id}> **{fmt_rating(r.rating)}** · {r.wins}W {r.losses}L ({wr})")
             embed = discord.Embed(title=f"{g.name} leaderboard", description="\n".join(lines), colour=discord.Colour.gold())
             embed.set_footer(text=f"Page {len(pages) + 1} of {-(-len(rows) // PAGE_SIZE)} · min {min_games} games")
             pages.append(embed)
