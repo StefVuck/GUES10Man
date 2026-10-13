@@ -19,6 +19,8 @@ When you create the application in the [Discord developer portal](https://discor
 Once the bot is in the server, a member with Manage Server should run:
 
 - `/setup staffrole role:<role>` so committee members can run queues without needing Manage Server
+
+Whoever owns the bot in the developer portal always counts as staff, as does anyone listed in `STAFF_USER_IDS` in `.env`. That way you can test on a server where you don't have Manage Server.
 - `/queue open game:Valorant` in the channel where the queue should live
 
 ## How a match runs

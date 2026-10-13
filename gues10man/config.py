@@ -13,6 +13,7 @@ class Settings:
     henrik_api_key: str | None
     valorant_region: str
     database_path: str
+    staff_user_ids: frozenset[int] = frozenset()
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -27,4 +28,5 @@ class Settings:
             henrik_api_key=os.getenv("HENRIK_API_KEY") or None,
             valorant_region=os.getenv("VALORANT_REGION", "eu"),
             database_path=os.getenv("DATABASE_PATH", "gues10man.db"),
+            staff_user_ids=frozenset(int(x) for x in os.getenv("STAFF_USER_IDS", "").replace(",", " ").split()),
         )

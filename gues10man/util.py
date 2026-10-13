@@ -24,12 +24,14 @@ GAME_CHOICES = [app_commands.Choice(name=g.name, value=g.key) for g in GAMES.val
 
 
 async def is_staff(interaction: discord.Interaction) -> bool:
+    bot: TenManBot = interaction.client  # type: ignore[assignment]
     member = interaction.user
+    if member.id in bot.settings.staff_user_ids or await bot.is_owner(member):
+        return True
     if not isinstance(member, discord.Member):
         return False
     if member.guild_permissions.manage_guild:
         return True
-    bot: TenManBot = interaction.client  # type: ignore[assignment]
     config = await bot.db.get_config(member.guild.id)
     return bool(config.staff_role_id and member.get_role(config.staff_role_id))
 
