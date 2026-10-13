@@ -164,3 +164,27 @@ def test_elo_help_fits_discord_limits():
     assert all(len(f.value) <= 1024 for f in embed.fields)
     assert len(embed) < 1500
     assert "Coulom" in embed.fields[-1].value and "Hunter" in embed.fields[-1].value
+
+
+async def test_map_vote(lobby):
+    import random
+
+    from gues10man.cogs.lobby import MapVote
+
+    vote = MapVote(["Ascent", "Bind", "Lotus"], 0)
+    vote.votes = {1: "Bind", 2: "Bind", 3: "Lotus"}
+    assert vote.winner() == "Bind"
+    tie = MapVote(["Ascent", "Bind", "Lotus"], 0, {1: "Ascent", 2: "Lotus"})
+    assert {tie.winner(random.Random(s)) for s in range(20)} == {"Ascent", "Lotus"}
+
+    match_id = await lobby.db.create_match(1, "valorant", list(range(10)))
+    lobby.votes[match_id] = MapVote(["Ascent", "Bind", "Lotus"], 0, {0: "Lotus"})
+    embed, view = await lobby.render_match(match_id)
+    labels = [c.item.label for c in view.children if hasattr(c, "item") and c.item.custom_id.startswith("v:")]
+    assert labels == ["Ascent (0)", "Bind (0)", "Lotus (1)"]
+    assert "Map vote" in embed.fields[0].name
+
+    await lobby.finish_vote(match_id)
+    assert (await lobby.db.get_match(match_id))["map"] == "Lotus"
+    _, view = await lobby.render_match(match_id)
+    assert any(getattr(c, "custom_id", "").startswith("m:auto") for c in view.children)

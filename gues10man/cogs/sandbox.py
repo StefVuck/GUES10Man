@@ -125,10 +125,23 @@ class Sandbox(commands.Cog):
         side = GAMES[GAME].side(winner)
         return f"#{match_id}: {side} won {max(score)}-{min(score)}"
 
+    async def vote(self, match_id: int, roster: list[int], step: float, rng: random.Random) -> None:
+        """Bots vote straight away rather than waiting out the real timer."""
+        vote = self.lobby.votes.get(match_id)
+        if vote is None:
+            return
+        for uid in roster:
+            if uid in FAKE_PLAYERS:
+                vote.votes[uid] = rng.choice(vote.options)
+        await self.lobby.refresh_match_message(match_id)
+        await asyncio.sleep(step)
+        await self.lobby.finish_vote(match_id)
+
     async def draft_game(self, channel: discord.abc.Messageable, guild_id: int, roster: list[int], step: float, rng: random.Random) -> int:
         lobby = self.lobby
         match_id = await self.db.create_match(guild_id, GAME, roster)
         await lobby.post_match(channel, match_id)
+        await self.vote(match_id, roster, step, rng)
         await asyncio.sleep(step)
         async with lobby.locks[("match", match_id)]:
             await lobby.start_draft(None, match_id, "top")
@@ -142,10 +155,13 @@ class Sandbox(commands.Cog):
                 await lobby.pick(None, match_id, choice)
         return match_id
 
-    async def auto_game(self, channel: discord.abc.Messageable, guild_id: int, roster: list[int], step: float) -> int:
+    async def auto_game(
+        self, channel: discord.abc.Messageable, guild_id: int, roster: list[int], step: float, rng: random.Random
+    ) -> int:
         lobby = self.lobby
         match_id = await self.db.create_match(guild_id, GAME, roster)
         await lobby.post_match(channel, match_id)
+        await self.vote(match_id, roster, step, rng)
         await asyncio.sleep(step)
         async with lobby.locks[("match", match_id)]:
             await lobby.start_auto(None, match_id)
@@ -203,7 +219,7 @@ class Sandbox(commands.Cog):
             for n in range(2, 5):
                 await asyncio.sleep(step_seconds)
                 await progress(f"Game {n} of 4: auto balancing.")
-                match_id = await self.auto_game(channel, guild_id, roster, step_seconds)
+                match_id = await self.auto_game(channel, guild_id, roster, step_seconds, rng)
                 await asyncio.sleep(step_seconds)
                 await progress(f"Game {n} of 4: match #{match_id} is live, simulating the result and scoreboard.")
                 results.append(await self.play(match_id, me, scoreboard=True, rng=rng) + " (auto balance, with ACS)")

@@ -6,6 +6,7 @@ import pytest
 
 from gues10man.bot import EXTENSIONS, TenManBot
 from gues10man.config import Settings
+from gues10man.games import GAMES
 from gues10man.util import FAKE_PLAYERS, mention
 
 
@@ -42,12 +43,13 @@ async def test_sandbox_session(bot):
     assert mention(1) == "**Bot Ace**" and mention(tester) == f"<@{tester}>"
 
     first = await sandbox.draft_game(channel, 1, roster, 0, rng)
+    assert (await bot.db.get_match(first))["map"] in GAMES["sandbox"].maps
     assert (await bot.db.get_match(first))["status"] == "live"
     assert (await bot.db.get_match(first))["mode"] == "draft-top"
     await sandbox.play(first, tester, scoreboard=False, rng=rng)
 
     for _ in range(3):
-        match_id = await sandbox.auto_game(channel, 1, roster, 0)
+        match_id = await sandbox.auto_game(channel, 1, roster, 0, rng)
         summary = await sandbox.play(match_id, tester, scoreboard=True, rng=rng)
         assert summary.startswith(f"#{match_id}:")
         assert all(p["score"] is not None for p in await bot.db.match_players(match_id))

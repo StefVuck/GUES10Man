@@ -80,7 +80,7 @@ def elo_help_embed() -> discord.Embed:
         value=(
             f"Team Bradley-Terry model fitted with the MM algorithm, from [Coulom 2007]({COULOM_2007}) "
             f"and [Hunter 2004]({HUNTER_2004}). Scoreboards are Plackett-Luce rankings weighted at "
-            f"{PERF_WEIGHT:g} of a result. Code's in `gues10man/elo5v5.py`."
+            f"{PERF_WEIGHT:g} of a result."
         ),
         inline=False,
     )
